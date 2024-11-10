@@ -9,4 +9,4 @@ class Categories(Base):
     name = Column(String, nullable=False)
 
     # Relacionamento reverso com Balance
-    balances = relationship("Balance", back_populates="category")
+    transactions = relationship("Transaction", back_populates="category")

@@ -16,14 +16,9 @@ async def create_transaction(transaction: TransactionModel):
     """
     result = await register_transaction_handler.execute(transaction)
     logger.info(result)
-    if result.sucess:
-        result = await register_category_handler.execute(transaction.category)
-        logger.info(result)
 
-        if result.sucess:
-            return JSONResponse(content=result.message, status_code=200)
-        else:
-            return JSONResponse(content=result.message, status_code=500)
+    if result.sucess:
+        return JSONResponse(content=result.message, status_code=200)
 
     else:
         return JSONResponse(content=result.message, status_code=500)

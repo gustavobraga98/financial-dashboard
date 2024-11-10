@@ -5,7 +5,6 @@ import datetime
 
 # Recria a Enum do SQLAlchemy para uso no Pydantic
 class TypeType(str, Enum):
-    START = "start"
     INCOME = "income"
     OUTCOME = "outcome"
 
