@@ -13,7 +13,7 @@ async def get_monthly_expenses():
     expenses = await home_handlers.get_monthly_expenses_handler.execute()
     return expenses
 
-# @router.get("/balance/"):
-# async def get_total_balance():
-#     balance = await home_handlers.get_balance_handler.execute()
-#     return balance
+@router.get("/balance/")
+async def get_total_balance():
+    balance = await home_handlers.get_total_balance_handler.execute()
+    return balance

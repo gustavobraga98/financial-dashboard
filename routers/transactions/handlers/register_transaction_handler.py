@@ -8,7 +8,7 @@ async def execute(transaction):
     try:
         session = await get_session()
 
-        # Verifique se o tipo da transação é "outcome" e inverta o valor
+        # Ajusta o valor se a transação for um outcome
         if transaction.type == "outcome":
             transaction.value *= -1
 
@@ -19,63 +19,64 @@ async def execute(transaction):
         category = category.scalar()
 
         if not category:
-            # Se a categoria não existir, crie uma nova
+            # Cria nova categoria se não existir
             new_category = Categories(name=transaction.category)
             session.add(new_category)
             await session.commit()
             await session.refresh(new_category)
             category = new_category
 
-        # Passo 2: Criação da nova transação com a categoria correta
+        # Passo 2: Criar a transação
         new_transaction = Transaction(
             type=transaction.type,
             value=transaction.value,
             description=transaction.description,
-            category=category,  # Atribuindo a instância de categoria
-            date=transaction.date or datetime.now(timezone.utc).date()  # Use a data fornecida ou a data atual
+            category=category,
+            date=transaction.date
         )
 
-        # Adicione a transação ao banco de dados
         session.add(new_transaction)
         await session.commit()
 
-        # Passo 3: Agora, atualize o Balance com o novo valor da transação
-        # Busque o saldo mais recente para a mesma data da transação
+        # Passo 3: Atualizar o Balance
+        # Tenta buscar um saldo existente para a data da transação
         existing_balance = await session.execute(
             select(Balance).where(Balance.date == transaction.date).order_by(Balance.date.desc())
         )
         existing_balance = existing_balance.scalar()
 
         if existing_balance:
-            # Se já existir um saldo, atualize seu valor
-            new_balance_value = existing_balance.value + transaction.value
-            existing_balance.value = new_balance_value
+            # Atualiza o saldo do dia com a transação
+            existing_balance.value += transaction.value
             session.add(existing_balance)
         else:
-            # Se não existir um saldo para essa data, crie uma nova entrada
+            # Busca o saldo mais recente antes da data da transação
+            latest_balance_before_date = await session.execute(
+                select(Balance).where(Balance.date < transaction.date).order_by(Balance.date.desc()).limit(1)
+            )
+            latest_balance = latest_balance_before_date.scalar()
+            latest_balance_value = latest_balance.value if latest_balance else 0
+
+            # Cria nova entrada no Balance somando o valor mais recente com o valor da transação
             new_balance = Balance(
                 date=transaction.date,
-                value=transaction.value
+                value=latest_balance_value + transaction.value
             )
             session.add(new_balance)
 
-        # Passo 4: Atualizar os saldos dos dias subsequentes
-        # Encontre os saldos a partir do dia seguinte à data da transação
+        # Passo 4: Ajusta saldos dos dias futuros
         future_balances = await session.execute(
             select(Balance).where(Balance.date > transaction.date).order_by(Balance.date.asc())
         )
         future_balances = future_balances.scalars().all()
 
-        # Se existirem saldos futuros, ajuste-os com base no saldo mais recente
         if future_balances:
             for balance in future_balances:
                 balance.value += transaction.value
                 session.add(balance)
 
-        # Commit para salvar as mudanças no banco
         await session.commit()
 
-        # Retorne a resposta de sucesso
         return NewTransactionRegisteredDataModel(sucess=True,
                                                  message="Transação registrada com sucesso!")
 
