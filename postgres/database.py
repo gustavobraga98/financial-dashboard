@@ -23,9 +23,3 @@ def connect_to_database(host: str, database: str, user: str, password: str) -> T
 
     return engine, SessionLocal
 
-async def create_tables(engine: AsyncEngine):
-    logger.info("Criando as tabelas no banco de dados")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        logger.info("Tabelas criadas com sucesso")
-

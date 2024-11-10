@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from routers.home import handlers as home_handlers
 router = APIRouter()
 
-@router.get("/balance/")
+@router.get("/balance_history/")
 async def get_balance(range: str):
     balance = await home_handlers.get_balance_by_range_handler.execute(range)
     return balance
@@ -12,3 +12,8 @@ async def get_balance(range: str):
 async def get_monthly_expenses():
     expenses = await home_handlers.get_monthly_expenses_handler.execute()
     return expenses
+
+# @router.get("/balance/"):
+# async def get_total_balance():
+#     balance = await home_handlers.get_balance_handler.execute()
+#     return balance
