@@ -1,30 +1,12 @@
-from postgres.database import connect_to_database
-from dotenv import load_dotenv
+import dotenv
 import os
-import logging
-from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger("uvicorn")
-logger.setLevel(logging.INFO)
+# Load environment variables from .env file
+dotenv.load_dotenv()
 
-# Carregar variáveis de ambiente do arquivo .env
-load_dotenv()
-
-# Acessar as variáveis de ambiente
-host = os.getenv('DATABASE_HOST', 'localhost')
-database = os.getenv('DATABASE_NAME', 'postgres')
-user = os.getenv('DATABASE_USER', 'postgres')
-password = os.getenv('DATABASE_PASSWORD', 'postgres')
-
-logger.info(f"Conectando ao banco de dados: {host}, {database}, {user}")
-
-# Conectar ao banco de dados e retornar engine, Base e SessionLocal
-engine, SessionLocal = connect_to_database(host, database, user, password)
-
-async def get_session() -> AsyncSession:
-    session = SessionLocal()
-    try:
-        return session
-    finally:
-        await session.close()
-
+PG_USER = os.getenv("PG_USER", "postgres")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "postgres")
+PG_HOST = os.getenv('PG_HOST', 'localhost')
+PG_PORT = os.getenv('PG_PORT', '5432')
+PG_DATABASE = os.getenv('PG_DATABASE', 'financial-dashboard')
+PG_URL = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}"

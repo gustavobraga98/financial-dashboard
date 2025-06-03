@@ -7,21 +7,20 @@ from alembic import context
 from dotenv import load_dotenv
 import os
 
-from postgres.data_models import * #! Postgres Models
-
-
 load_dotenv()
-
-# Acessar as variáveis de ambiente
-host = os.getenv('DATABASE_HOST', 'localhost')
-database = os.getenv('DATABASE_NAME', 'postgres')
-user = os.getenv('DATABASE_USER', 'postgres')
-password = os.getenv('DATABASE_PASSWORD', 'postgres')
-database_url = f"postgresql://{user}:{password}@{host}/{database}"
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+pg_user = os.getenv("DB_USER", "postgres")
+pg_password = os.getenv("DB_PASSWORD", "postgres")
+pg_host = os.getenv('DB_HOST', 'localhost')
+pg_port = os.getenv('DB_PORT', '5432')
+pg_database = os.getenv('DB_NAME', 'financial-dashboard')
+
+database_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
+
 config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
@@ -29,10 +28,7 @@ config.set_main_option("sqlalchemy.url", database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
+from models.base import Base
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
