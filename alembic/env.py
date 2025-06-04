@@ -13,11 +13,11 @@ load_dotenv()
 # access to the values within the .ini file in use.
 config = context.config
 
-pg_user = os.getenv("DB_USER", "postgres")
-pg_password = os.getenv("DB_PASSWORD", "postgres")
-pg_host = os.getenv('DB_HOST', 'localhost')
-pg_port = os.getenv('DB_PORT', '5432')
-pg_database = os.getenv('DB_NAME', 'financial-dashboard')
+pg_user = os.getenv("PG_USER", "postgres")
+pg_password = os.getenv("PG_PASSWORD", "postgres")
+pg_host = os.getenv('PG_HOST', 'localhost')
+pg_port = os.getenv('PG_PORT', '5432')
+pg_database = os.getenv('PG_DATABASE', 'financial-dashboard')
 
 database_url = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
 

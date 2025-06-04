@@ -10,7 +10,7 @@ class Account(Base):
     bank_id = Column(Integer, ForeignKey("banks.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     nickname = Column(String)
-    number = Column(String)
+    number = Column(String, nullable=True)
 
     bank = relationship("Bank", back_populates="accounts")
     user = relationship("User", back_populates="accounts")

@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, Numeric, CheckConstraint
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey, Numeric, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import relationship
+from datetime import datetime
 
 from .base import Base
 
@@ -10,13 +11,15 @@ class Transaction(Base):
     account_id = Column(Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False)
     date = Column(Date, nullable=False)
     description = Column(Text, nullable=False)
-    amount = Column(Numeric(12, 2), nullable=False)  # Accepts negative and positive
-    type = Column(String, nullable=False)  # Should be 'input' or 'output'
+    amount = Column(Numeric(12, 2), nullable=False)
+    type = Column(String, nullable=False)  # 'input' or 'output'
     category = Column(String)
     balance = Column(Numeric(12, 2))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     account = relationship("Account", back_populates="transactions")
 
     __table_args__ = (
         CheckConstraint("type IN ('input', 'output')", name="transactions_type_check"),
+        UniqueConstraint("account_id", "date", "description", "amount", name="uq_transactions_unique_entry"),
     )

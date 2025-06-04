@@ -9,4 +9,5 @@ class ProcessCSVModel(BaseModel):
 def execute(payload: ProcessCSVModel):
     df = pd.read_csv(StringIO(payload.csv_content), sep=payload.separator, header = None)
     df[2] = (df[2].str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float))
+    df.columns = ['date', 'description', 'amount']
     return df
