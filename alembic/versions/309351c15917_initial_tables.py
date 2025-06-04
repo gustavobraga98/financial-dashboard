@@ -53,7 +53,7 @@ def upgrade() -> None:
     sa.Column('type', sa.String(), nullable=False),
     sa.Column('category', sa.String(), nullable=True),
     sa.Column('balance', sa.Numeric(precision=12, scale=2), nullable=True),
-    sa.CheckConstraint("type IN ('input', 'output')", name='transactions_type_check'),
+    sa.CheckConstraint("type IN ('income', 'outcome')", name='transactions_type_check'),
     sa.ForeignKeyConstraint(['account_id'], ['accounts.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )

@@ -12,7 +12,7 @@ class Transaction(Base):
     date = Column(Date, nullable=False)
     description = Column(Text, nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
-    type = Column(String, nullable=False)  # 'input' or 'output'
+    type = Column(String, nullable=False)  # 'income' or 'outcome'
     category = Column(String)
     balance = Column(Numeric(12, 2))
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -20,6 +20,6 @@ class Transaction(Base):
     account = relationship("Account", back_populates="transactions")
 
     __table_args__ = (
-        CheckConstraint("type IN ('input', 'output')", name="transactions_type_check"),
+        CheckConstraint("type IN ('income', 'outcome')", name="transactions_type_check"),
         UniqueConstraint("account_id", "date", "description", "amount", name="uq_transactions_unique_entry"),
     )

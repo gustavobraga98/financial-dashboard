@@ -18,8 +18,8 @@ def execute(payload: MarkdownToCsvModel) -> str:
         r"(?:\|[^\n]*\|\s*\n)+", markdown
     )
 
-    output = io.StringIO()
-    writer = csv.writer(output)
+    outcome = io.StringIO()
+    writer = csv.writer(outcome)
 
     for block in table_blocks:
         lines = block.strip().split("\n")
@@ -46,4 +46,4 @@ def execute(payload: MarkdownToCsvModel) -> str:
                 cols = cols[:expected_len]
             writer.writerow(cols)
 
-    return output.getvalue()
+    return outcome.getvalue()

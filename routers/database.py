@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 import pandas as pd
 from io import StringIO
 from typing import Optional
-from handlers import pdf_to_markdown, markdown_to_csv, process_csv, register_df
+from handlers import markdown_to_csv_handler, pdf_to_markdown_handler, process_csv_handler, register_df_handler
 import uvicorn
 from pydantic import BaseModel, UUID4
 from models import User, Bank, Account, Transaction
@@ -24,23 +24,23 @@ async def process_file(
     contents = await file.read()
 
     if file.content_type == "database_routerlication/pdf":
-        markdown = pdf_to_markdown.execute(
-            pdf_to_markdown.ProcessPdfModel(pdf_binary=contents)
+        markdown = pdf_to_markdown_handler.execute(
+            pdf_to_markdown_handler.ProcessPdfModel(pdf_binary=contents)
         )
-        csv = markdown_to_csv.execute(
-            markdown_to_csv.MarkdownToCsvModel(markdown=markdown)
+        csv = markdown_to_csv_handler.execute(
+            markdown_to_csv_handler.MarkdownToCsvModel(markdown=markdown)
         )
         df = pd.read_csv(StringIO(csv), sep=separator)
 
     elif file.content_type in ["text/csv", "database_routerlication/vnd.ms-excel", "text/plain"]:
-        df = process_csv.execute(
-            process_csv.ProcessCSVModel(
+        df = process_csv_handler.execute(
+            process_csv_handler.ProcessCSVModel(
                 csv_content=contents.decode("utf-8"), separator=separator
             )
         )
     else:
         raise HTTPException(status_code=400, detail="File type not supported")
-    register_df.execute(register_df.RegisterDFModel(df=df, account_id=account_id))
+    register_df_handler.execute(register_df_handler.RegisterDFModel(df=df, account_id=account_id))
     
 
 class NewUser(BaseModel):
@@ -142,7 +142,7 @@ async def create_transaction(payload: NewTransaction, db: Session = Depends(get_
         amount=payload.amount,
         description=payload.description,
         date=payload.date,
-        type="input" if payload.amount > 0 else "output",
+        type="income" if payload.amount > 0 else "outcome",
         balance=(
             last_transaction.balance + payload.amount
             if last_transaction

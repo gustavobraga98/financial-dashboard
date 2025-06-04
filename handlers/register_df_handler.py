@@ -46,7 +46,7 @@ def execute(payload: RegisterDFModel):
             date=formatted_date,
             description=row.description,
             amount=Decimal(row.amount),
-            type="input" if row.amount > 0 else "output",
+            type="income" if row.amount > 0 else "outcome",
             category=None,
             balance=(
                 last_transaction.balance + Decimal(row.amount)
