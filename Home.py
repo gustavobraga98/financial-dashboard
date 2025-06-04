@@ -4,9 +4,11 @@ import requests
 from settings import BACKEND_URL
 
 st.set_page_config(layout="wide")
-st.title('Financial Dashboard :moneybag:')
+title_cols = st.columns((1,1,1))
+with title_cols[1]:
+    st.title('Financial Dashboard :moneybag:')
 
-summary_cols = st.columns(((5,1)))
+summary_cols = st.columns(((4,1)))
 
 home_data = requests.get(f"{BACKEND_URL}/dashboard/home").json()
 
