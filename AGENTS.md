@@ -32,6 +32,12 @@ We will use uv as our package manager. It must be used to install, uninstall and
 - Use whitespace effectively.
 - Keep all text in portuguese pt-BR.
 
+## Task Creation
+Whenever the user asks you to create a new task, do it following the format used in this folder (tasks/ folder).
+Do not start working on the task right away. Just create the task and let the user know it has been created.
+The name format should be a number followed by the task name, for example: 1-bootstrap.md, 2-database_setup.md, etc. following an order to keep track of the tasks in a chronological order.
+
+
 ## Dev environment tips
 
 
