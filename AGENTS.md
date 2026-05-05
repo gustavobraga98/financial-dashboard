@@ -39,8 +39,7 @@ The name format should be a number followed by the task name, for example: 1-boo
 
 
 ## Dev environment tips
-
-
+- Always execute Python scripts and applications through `uv run` to ensure they run inside the correct project environment.
 ## Testing instructions
 
 
