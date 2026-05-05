@@ -17,12 +17,20 @@ This project is a financial dashboard that allows users to track their expenses,
 ## Tech stack
 
 - FastAPI
-- MySQL
+- SQLite
 - Streamlit for UI
 
 ## Package management
 
 We will use uv as our package manager. It must be used to install, uninstall and update packages.
+
+## UI/UX guidelines
+
+- Use simple, clean and modern UI.
+- Use clear typography and colors. 
+- Avoid clutter. 
+- Use whitespace effectively.
+- Keep all text in portuguese pt-BR.
 
 ## Dev environment tips
 
