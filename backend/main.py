@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine, Base
 import app.models # Import all models so Base can detect them
+from app.api.api import api_router
 
 # Create tables if they don't exist
 Base.metadata.create_all(bind=engine)
@@ -24,3 +25,5 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+app.include_router(api_router, prefix="/api")

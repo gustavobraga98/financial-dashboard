@@ -1,11 +1,8 @@
 # Backend API Task
 
-Implement the RESTful API endpoints for managing financial transactions.
+Implement the RESTful API endpoints for managing financial transactions. It must cover all possible use-cases of a transaction management system. following the existing models already created for the db.
 
 ## Objectives
 - Create Pydantic schemas for Transaction input/output.
-- Implement CRUD endpoints:
-  - `POST /transactions`: Create a new transaction.
-  - `GET /transactions`: List all transactions (with filtering).
-  - `GET /summary`: Get total balance, income, and expenses.
-  - `DELETE /transactions/{id}`: Remove a transaction.
+- Implement CRUD endpoints for the existing models.
+- Use the existing db session for all database operations.
