@@ -5,6 +5,7 @@ from datetime import datetime
 class AccountBase(BaseModel):
     name: str
     initial_balance: float = 0.0
+    initial_balance_date: Optional[datetime] = None
 
 class AccountCreate(AccountBase):
     pass

@@ -14,7 +14,7 @@ def read_accounts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 
 @router.post("/", response_model=schemas.AccountResponse)
 def create_account(account: schemas.AccountCreate, db: Session = Depends(get_db)):
-    db_account = models.Account(name=account.name, initial_balance=account.initial_balance)
+    db_account = models.Account(**account.model_dump())
     db.add(db_account)
     db.commit()
     db.refresh(db_account)
@@ -33,8 +33,8 @@ def update_account(account_id: int, account: schemas.AccountCreate, db: Session 
     if db_account is None:
         raise HTTPException(status_code=404, detail="Account not found")
     
-    db_account.name = account.name
-    db_account.initial_balance = account.initial_balance
+    for key, value in account.model_dump().items():
+        setattr(db_account, key, value)
     db.commit()
     db.refresh(db_account)
     return db_account
