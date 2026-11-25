@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block title %}Configurações · Finanças Locais{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Configurações</h1>
+    <p class="page-subtitle">Gerencie seus bancos, contas, saldos iniciais, categorias, orçamentos, regras e perfis de importação.</p>
+  </div>
+</div>
+
+<nav class="tabs" aria-label="Seções de configuração">
+  <a href="/configuracoes?tab=accounts" class="tab-link {% if active_tab == 'accounts' %}active{% endif %}">Bancos e Contas</a>
+  <a href="/configuracoes?tab=categories" class="tab-link {% if active_tab == 'categories' %}active{% endif %}">Categorias e Orçamentos</a>
+  <a href="/configuracoes?tab=rules" class="tab-link {% if active_tab == 'rules' %}active{% endif %}">Regras de Renomeação ({{ rules | length }})</a>
+  <a href="/configuracoes?tab=profiles" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}">Perfis CSV ({{ profiles | length }})</a>
+</nav>
+
+{% if active_tab == 'accounts' %}
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Bancos</h2>
+    </div>
+    <div class="panel-body">
+      <form method="post" action="/configuracoes/banks" style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <input type="text" name="name" class="input" placeholder="Ex.: Itaú, Nubank, Inter" required style="flex: 1;">
+        <input type="color" name="color" value="#16654e" class="input" style="width: 44px; padding: 3px;">
+        <button type="submit" class="btn btn-primary">Adicionar</button>
+      </form>
+
+      {% if banks %}
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Banco</th>
+            <th class="text-right">Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in banks %}
+          <tr>
+            <td><span class="legend-dot" style="background: {{ b.color }}"></span><strong>{{ b.name }}</strong></td>
+            <td class="text-right">
+              <form method="post" action="/configuracoes/banks/{{ b.id }}/delete" onsubmit="return confirm('Excluir o banco {{ b.name }} e todas as suas contas e lançamentos?');">
+                <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted" style="margin: 0; font-size: 13px;">Cadastre seu primeiro banco acima.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Nova conta ou cartão</h2>
+    </div>
+    <div class="panel-body">
+      {% if banks %}
+      <form method="post" action="/configuracoes/accounts" class="form-grid">
+        <div class="field">
+          <label>Banco</label>
+          <select name="bank_id" class="select" required>
+            {% for b in banks %}
+            <option value="{{ b.id }}">{{ b.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Nome da conta</label>
+          <input type="text" name="name" class="input" placeholder="Ex.: Conta Corrente, Cartão Black" required>
+        </div>
+
+        <div class="field">
+          <label>Tipo</label>
+          <select name="account_type" class="select">
+            <option value="checking">Conta Corrente</option>
+            <option value="credit_card">Cartão de Crédito</option>
+            <option value="savings">Poupança / Reserva</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Saldo inicial (R$)</label>
+          <input type="text" name="initial_balance" class="input" placeholder="0,00">
+          <span class="field-hint">Para contas correntes/reserva</span>
+        </div>
+
+        <div class="field">
+          <label>Data do saldo inicial</label>
+          <input type="date" name="initial_balance_date" class="input">
+        </div>
+
+        <div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Criar conta</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="text-muted" style="margin: 0; font-size: 13px;">Adicione pelo menos um banco ao lado para criar contas.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+{% if accounts %}
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Contas cadastradas e checkpoint de saldo</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Banco / Conta</th>
+          <th>Tipo</th>
+          <th>Saldo inicial e data de referência</th>
+          <th class="text-right">Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        <tr>
+          <td>
+            <span class="legend-dot" style="background: {{ a.bank_color }}"></span>
+            <strong>{{ a.bank_name }}</strong> · {{ a.name }}
+          </td>
+          <td class="text-muted">{{ ACCOUNT_TYPE_LABELS[a.account_type] }}</td>
+          <td>
+            {% if a.account_type != 'credit_card' %}
+            <form method="post" action="/configuracoes/accounts/{{ a.id }}/balance" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+              <input type="text" name="initial_balance" value="{{ a.initial_balance_cents | brl_input }}" class="input input-sm" style="width: 115px;" aria-label="Saldo inicial">
+              <input type="date" name="initial_balance_date" value="{{ a.initial_balance_date or '' }}" class="input input-sm" aria-label="Data do saldo">
+              <button type="submit" class="btn btn-sm">Salvar saldo</button>
+            </form>
+            {% else %}
+            <span class="text-muted" style="font-size: 12.5px;">Calculado por fatura mensal</span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            <form method="post" action="/configuracoes/accounts/{{ a.id }}/delete" onsubmit="return confirm('Excluir a conta {{ a.name }} e seus lançamentos?');">
+              <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% elif active_tab == 'categories' %}
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Nova categoria</h2>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/configuracoes/categories" class="form-grid">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" class="input" placeholder="Ex.: Viagens, Pets" required>
+      </div>
+      <div class="field">
+        <label>Orçamento mensal (R$ opcional)</label>
+        <input type="text" name="monthly_budget" class="input" placeholder="Ex.: 1200,00">
+      </div>
+      <div class="field" style="max-width: 90px;">
+        <label>Cor</label>
+        <input type="color" name="color" value="#16654e" class="input" style="height: 34px; padding: 3px;">
+      </div>
+      <div>
+        <button type="submit" class="btn btn-primary">Criar categoria</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Categorias e orçamentos mensais</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Categoria</th>
+          <th>Cor e limite mensal (R$)</th>
+          <th class="text-right">Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in categories %}
+        <tr>
+          <td><span class="legend-dot" style="background: {{ c.color }}"></span><strong>{{ c.name }}</strong></td>
+          <td>
+            <form method="post" action="/configuracoes/categories/{{ c.id }}" style="display: flex; gap: 8px; align-items: center;">
+              <input type="color" name="color" value="{{ c.color }}" class="input input-sm" style="width: 38px; padding: 2px;">
+              <input type="text" name="monthly_budget" value="{{ c.monthly_budget_cents | brl_input if c.monthly_budget_cents else '' }}" class="input input-sm" style="width: 130px;" placeholder="Sem limite">
+              <button type="submit" class="btn btn-sm">Salvar</button>
+            </form>
+          </td>
+          <td class="text-right">
+            <form method="post" action="/configuracoes/categories/{{ c.id }}/delete" onsubmit="return confirm('Excluir categoria {{ c.name }}?');">
+              <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% elif active_tab == 'rules' %}
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Nova regra automática</h2>
+    <form method="post" action="/configuracoes/rules/reapply">
+      <button type="submit" class="btn btn-sm">Reaplicar todas as regras</button>
+    </form>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/configuracoes/rules" class="form-grid">
+      <div class="field">
+        <label>Texto original do banco</label>
+        <input type="text" name="pattern" class="input" placeholder="Ex.: UBER *TRIP ou PAGAMENTO FATURA" required>
+      </div>
+      <div class="field">
+        <label>Correspondência</label>
+        <select name="match_type" class="select">
+          <option value="contains">Contém</option>
+          <option value="exact">Exato (ignora parcela)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Renomear para</label>
+        <input type="text" name="target_display_name" class="input" placeholder="Ex.: Uber" required>
+      </div>
+      <div class="field">
+        <label>Categoria</label>
+        <select name="target_category_id" class="select">
+          <option value="">Manter / Nenhuma</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Tipo</label>
+        <select name="target_kind" class="select">
+          <option value="">Manter padrão</option>
+          <option value="expense">Despesa</option>
+          <option value="income">Receita</option>
+          <option value="transfer">Transferência / Fatura</option>
+        </select>
+      </div>
+      <div class="field" style="justify-content: center;">
+        <label class="checkbox-label" style="margin-top: 16px;">
+          <input type="checkbox" name="apply_existing" value="1" checked>
+          Aplicar aos antigos
+        </label>
+      </div>
+      <div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Salvar regra</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Regras salvas</h2>
+  </div>
+  {% if rules %}
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Padrão do banco</th>
+          <th>Modo</th>
+          <th>Nome limpo</th>
+          <th>Categoria / Tipo</th>
+          <th class="text-right">Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td><code style="font-family: var(--font-mono);">{{ r.pattern }}</code></td>
+          <td class="text-muted">{{ "Exato" if r.match_type == 'exact' else "Contém" }}</td>
+          <td><strong>{{ r.target_display_name }}</strong></td>
+          <td>
+            {% if r.target_kind == 'transfer' %}
+            <span class="pill pill-transfer">Transferência / Fatura</span>
+            {% elif r.category_name %}
+            <span class="pill"><span class="pill-dot" style="background: {{ r.category_color }}"></span>{{ r.category_name }}</span>
+            {% else %}
+            <span class="text-muted">{{ KIND_LABELS[r.target_kind] if r.target_kind else "—" }}</span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            <form method="post" action="/configuracoes/rules/{{ r.id }}/delete" onsubmit="return confirm('Excluir esta regra?');">
+              <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>Nenhuma regra cadastrada</h3>
+    <p>Crie regras aqui ou diretamente ao editar qualquer lançamento na aba Lançamentos.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% elif active_tab == 'profiles' %}
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Perfis de importação CSV</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Nome do perfil</th>
+          <th>Delimitador</th>
+          <th>Colunas (Data / Desc. / Valor)</th>
+          <th>Formato data / Decimal</th>
+          <th>Sinal gasto</th>
+          <th class="text-right">Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in profiles %}
+        <tr>
+          <td>
+            <strong>{{ p.name }}</strong>
+            {% if p.account_name %}
+            <div style="font-size: 11.5px;" class="text-muted">{{ p.bank_name }} · {{ p.account_name }}</div>
+            {% endif %}
+          </td>
+          <td class="num"><code>{{ p.delimiter }}</code></td>
+          <td class="text-muted"><code>{{ p.date_column }}</code> / <code>{{ p.description_column }}</code> / <code>{{ p.amount_column }}</code></td>
+          <td class="text-muted">{{ p.date_format }} · <code>{{ p.decimal_separator }}</code></td>
+          <td class="text-muted">{{ "Positivo" if p.expense_sign == 'positive' else "Negativo" }}</td>
+          <td class="text-right">
+            <form method="post" action="/configuracoes/profiles/{{ p.id }}/delete" onsubmit="return confirm('Excluir perfil {{ p.name }}?');">
+              <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

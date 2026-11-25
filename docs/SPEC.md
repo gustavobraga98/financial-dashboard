@@ -82,7 +82,7 @@ Uma aplicação financeira **100% local e sem overengineering** para consolidar 
 ## 6. Roadmap Incremental
 
 - [x] **Etapa 1**: Documentação da especificação (`docs/SPEC.md`, `AGENTS.md`) e bootstrap do projeto (`uv` + `pyproject.toml`).
-- [ ] **Etapa 2**: Esquema SQLite, seed inicial de categorias/presets e serviços de domínio (saldos, regras, projeção de parcelas, planejamento).
-- [ ] **Etapa 3**: Motor de importação CSV com perfis configuráveis, preview, deduplicação inteligente e undo de lote.
-- [ ] **Etapa 4**: Rotas FastAPI + Templates Jinja2 + HTMX + Chart.js + CSS limpo e responsivo.
-- [ ] **Etapa 5**: Suite de testes automatizados + validação ponta-a-ponta rodando o servidor localmente com CSVs reais de exemplo.
+- [x] **Etapa 2**: Esquema SQLite, seed inicial de categorias/presets e serviços de domínio (saldos, regras, projeção de parcelas, planejamento).
+- [x] **Etapa 3**: Motor de importação CSV com perfis configuráveis, preview, deduplicação inteligente e undo de lote.
+- [x] **Etapa 4**: Rotas FastAPI + Templates Jinja2 + HTMX + Chart.js + CSS limpo e responsivo.
+- [x] **Etapa 5**: Suite de testes automatizados + validação ponta-a-ponta rodando o servidor localmente com CSVs reais de exemplo.

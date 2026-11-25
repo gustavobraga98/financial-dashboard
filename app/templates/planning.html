@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{% block title %}Planejamento · Finanças Locais{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Planejamento Mensal</h1>
+    <p class="page-subtitle">Veja quanto da renda já está comprometido entre gastos realizados, contas recorrentes e parcelas futuras de cartão.</p>
+  </div>
+
+  <form method="get" action="/planejamento" class="toolbar">
+    <div class="month-nav">
+      <a href="/planejamento?month={{ prev_month }}{% if selected_bank_id %}&bank_id={{ selected_bank_id }}{% endif %}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}" aria-label="Mês anterior">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </a>
+      <select name="month" onchange="this.form.submit()" aria-label="Selecionar mês">
+        {% for m in months %}
+        <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>{{ m | month_label }}</option>
+        {% endfor %}
+      </select>
+      <a href="/planejamento?month={{ next_month }}{% if selected_bank_id %}&bank_id={{ selected_bank_id }}{% endif %}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}" aria-label="Próximo mês">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </a>
+    </div>
+
+    <select name="bank_id" class="select" onchange="this.form.account_id.value=''; this.form.submit()">
+      <option value="">Todos os bancos</option>
+      {% for b in banks %}
+      <option value="{{ b.id }}" {% if selected_bank_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="account_id" value="{{ selected_account_id or '' }}">
+  </form>
+</div>
+
+<!-- Monthly Commitment KPI Strip -->
+<section class="kpi-strip">
+  <div class="kpi-cell">
+    <div class="kpi-label">Renda esperada</div>
+    <div class="kpi-value text-income">{{ plan.expected_income_cents | brl }}</div>
+    <div class="kpi-sub">Recebido: {{ plan.actual_income_cents | brl }} · A receber: {{ plan.pending_recurring_income_cents | brl }}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Já gasto no mês</div>
+    <div class="kpi-value text-expense">{{ plan.actual_expense_cents | brl }}</div>
+    <div class="kpi-sub">Realizado (débito + cartão)</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Ainda comprometido</div>
+    <div class="kpi-value text-warn">{{ plan.pending_committed_cents | brl }}</div>
+    <div class="kpi-sub">Fixos: {{ plan.pending_recurring_expense_cents | brl }} · Parcelas: {{ plan.projected_installments_cents | brl }}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Livre para planejar</div>
+    <div class="kpi-value {% if plan.available_cents >= 0 %}text-income{% else %}text-expense{% endif %}">{{ plan.available_cents | brl }}</div>
+    <div class="kpi-sub">{{ plan.committed_pct }}% comprometido</div>
+  </div>
+</section>
+
+<!-- Recurring Income & Expenses -->
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Contas fixas e assinaturas</h2>
+      <span class="num text-muted">Pendente: <strong>{{ plan.pending_recurring_expense_cents | brl }}</strong></span>
+    </div>
+    {% if plan.recurring_expenses %}
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Dia</th>
+            <th>Despesa</th>
+            <th>Status</th>
+            <th class="text-right">Previsto</th>
+            <th class="text-right">Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in plan.recurring_expenses %}
+          <tr>
+            <td class="num text-muted">{{ "%02d" | format(item.day_of_month) }}</td>
+            <td>
+              <div class="tx-name">{{ item.name }}</div>
+              <div style="font-size: 11.5px;" class="text-muted">
+                {{ item.category_name }}{% if item.account_name %} · {{ item.account_name }}{% endif %}
+                {% if item.matched_tx_name %} · Casou com "{{ item.matched_tx_name }}"{% endif %}
+              </div>
+            </td>
+            <td>
+              {% if item.status == 'auto_paid' %}
+              <span class="pill pill-income">Pago (auto)</span>
+              {% elif item.status == 'paid' %}
+              <span class="pill pill-income">Pago</span>
+              {% elif item.status == 'skipped' %}
+              <span class="pill pill-transfer">Pulado</span>
+              {% else %}
+              <span class="pill pill-warn">Pendente</span>
+              {% endif %}
+            </td>
+            <td class="text-right num">{{ item.expected_amount_cents | brl }}</td>
+            <td class="text-right" style="white-space: nowrap;">
+              {% if item.status == 'pending' %}
+              <form method="post" action="/planejamento/items/{{ item.id }}/status" style="display:inline;">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <input type="hidden" name="status" value="paid">
+                <button type="submit" class="btn btn-sm">Marcar pago</button>
+              </form>
+              {% elif item.status in ('paid', 'skipped') %}
+              <form method="post" action="/planejamento/items/{{ item.id }}/status" style="display:inline;">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <input type="hidden" name="status" value="pending">
+                <button type="submit" class="btn btn-ghost btn-sm">Reabrir</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/planejamento/items/{{ item.id }}/delete" style="display:inline;" onsubmit="return confirm('Remover item recorrente?');">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--expense);">Excluir</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <h3>Nenhuma conta fixa cadastrada</h3>
+      <p>Adicione aluguel, internet, academia e assinaturas no formulário abaixo para ver o comprometimento automático do mês.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Receitas previstas</h2>
+      <span class="num text-muted">A receber: <strong>{{ plan.pending_recurring_income_cents | brl }}</strong></span>
+    </div>
+    {% if plan.recurring_incomes %}
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Dia</th>
+            <th>Receita</th>
+            <th>Status</th>
+            <th class="text-right">Previsto</th>
+            <th class="text-right">Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in plan.recurring_incomes %}
+          <tr>
+            <td class="num text-muted">{{ "%02d" | format(item.day_of_month) }}</td>
+            <td>
+              <div class="tx-name">{{ item.name }}</div>
+              {% if item.matched_tx_name %}
+              <div style="font-size: 11.5px;" class="text-muted">Casou com "{{ item.matched_tx_name }}"</div>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.status == 'auto_paid' %}
+              <span class="pill pill-income">Recebido (auto)</span>
+              {% elif item.status == 'paid' %}
+              <span class="pill pill-income">Recebido</span>
+              {% else %}
+              <span class="pill pill-warn">Previsto</span>
+              {% endif %}
+            </td>
+            <td class="text-right num text-income">{{ item.expected_amount_cents | brl }}</td>
+            <td class="text-right" style="white-space: nowrap;">
+              {% if item.status == 'pending' %}
+              <form method="post" action="/planejamento/items/{{ item.id }}/status" style="display:inline;">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <input type="hidden" name="status" value="paid">
+                <button type="submit" class="btn btn-sm">Recebido</button>
+              </form>
+              {% elif item.status in ('paid', 'skipped') %}
+              <form method="post" action="/planejamento/items/{{ item.id }}/status" style="display:inline;">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <input type="hidden" name="status" value="pending">
+                <button type="submit" class="btn btn-ghost btn-sm">Reabrir</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/planejamento/items/{{ item.id }}/delete" style="display:inline;" onsubmit="return confirm('Remover receita prevista?');">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--expense);">Excluir</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <h3>Nenhuma receita prevista</h3>
+      <p>Cadastre seu salário ou rendas mensais esperadas para calcular automaticamente o saldo disponível do mês.</p>
+    </div>
+    {% endif %}
+  </section>
+</div>
+
+<!-- Add Recurring / Planned Item -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Adicionar receita ou despesa recorrente</h2>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/planejamento/items" class="form-grid">
+      <input type="hidden" name="return_month" value="{{ selected_month }}">
+
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" class="input" placeholder="Ex.: Salário, Aluguel, Internet" required>
+      </div>
+
+      <div class="field">
+        <label>Tipo</label>
+        <select name="kind" class="select">
+          <option value="expense">Despesa fixa / prevista</option>
+          <option value="income">Receita prevista</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Valor previsto (R$)</label>
+        <input type="text" name="expected_amount" class="input" placeholder="Ex.: 2500,00" required>
+      </div>
+
+      <div class="field">
+        <label>Dia do mês</label>
+        <input type="number" name="day_of_month" value="5" min="1" max="31" class="input">
+      </div>
+
+      <div class="field">
+        <label>Conta (opcional)</label>
+        <select name="account_id" class="select">
+          <option value="">Qualquer conta</option>
+          {% for a in accounts %}
+          <option value="{{ a.id }}">{{ a.bank_name }} · {{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Categoria (opcional)</label>
+        <select name="category_id" class="select">
+          <option value="">Sem categoria</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Palavra-chave p/ baixa auto</label>
+        <input type="text" name="match_keyword" class="input" placeholder="Ex.: VIVO FIBRA">
+        <span class="field-hint">Evita dupla contagem ao importar</span>
+      </div>
+
+      <div class="field">
+        <label>Mês fim (opcional)</label>
+        <input type="month" name="end_month" class="input">
+        <span class="field-hint">P/ gastos temporários</span>
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- Projected Credit Card Installments for Selected Month -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Parcelas de cartão projetadas em {{ plan.month_label }}</h2>
+    <span class="num text-muted">Total: <strong>{{ plan.projected_installments_cents | brl }}</strong></span>
+  </div>
+  {% if plan.projected_installments %}
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Compra</th>
+          <th>Cartão</th>
+          <th>Parcela</th>
+          <th>Categoria</th>
+          <th class="text-right">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inst in plan.projected_installments %}
+        <tr>
+          <td class="tx-name">{{ inst.display_name }}</td>
+          <td class="text-muted">{{ inst.bank_name }} · {{ inst.account_name }}</td>
+          <td><span class="pill">{{ inst.installment_label }}</span></td>
+          <td><span class="pill"><span class="pill-dot" style="background: {{ inst.category_color }}"></span>{{ inst.category_name }}</span></td>
+          <td class="text-right num text-expense">{{ inst.amount_cents | brl }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="panel-body text-muted" style="font-size: 13px;">
+    Nenhuma parcela pendente projetada de faturas anteriores para {{ plan.month_label }}. Quando você importar faturas com compras parceladas (ex.: <code>02/06</code>), os meses seguintes aparecem automaticamente aqui.
+  </div>
+  {% endif %}
+</section>
+
+<!-- 6-Month Lookahead -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Projeção dos próximos 6 meses</h2>
+  </div>
+  <div class="panel-body">
+    <div class="chart-box-tall" style="margin-bottom: 16px;">
+      <canvas id="lookaheadChart"></canvas>
+    </div>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Mês</th>
+            <th class="text-right">Renda esperada</th>
+            <th class="text-right">Já gasto</th>
+            <th class="text-right">Fixos pendentes</th>
+            <th class="text-right">Parcelas proj.</th>
+            <th class="text-right">Disponível</th>
+            <th class="text-right">% Compr.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in lookahead %}
+          <tr>
+            <td><a href="/planejamento?month={{ m.month }}" style="font-weight: 600;">{{ m.month_label }}</a></td>
+            <td class="text-right num text-income">{{ m.expected_income_cents | brl }}</td>
+            <td class="text-right num">{{ m.actual_expense_cents | brl }}</td>
+            <td class="text-right num text-warn">{{ m.pending_recurring_expense_cents | brl }}</td>
+            <td class="text-right num text-muted">{{ m.projected_installments_cents | brl }}</td>
+            <td class="text-right num {% if m.available_cents >= 0 %}text-income{% else %}text-expense{% endif %}"><strong>{{ m.available_cents | brl }}</strong></td>
+            <td class="text-right num">{{ m.committed_pct }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const el = document.getElementById("lookaheadChart");
+  if (!el || typeof Chart === "undefined") return;
+  const data = {{ lookahead_chart_json | safe }};
+  new Chart(el, {
+    type: "bar",
+    data: {
+      labels: data.labels,
+      datasets: [
+        {
+          label: "Renda esperada",
+          data: data.expected_income,
+          backgroundColor: "#16654e",
+          borderRadius: 4,
+          stack: "income"
+        },
+        {
+          label: "Já gasto",
+          data: data.actual_expense,
+          backgroundColor: "#16241e",
+          borderRadius: 4,
+          stack: "expense"
+        },
+        {
+          label: "Comprometido futuro",
+          data: data.pending_committed,
+          backgroundColor: "#d99b26",
+          borderRadius: 4,
+          stack: "expense"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => " " + ctx.dataset.label + ": R$ " + Number(ctx.raw).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          grid: { color: "#eceae2" },
+          ticks: {
+            callback: (v) => "R$ " + Number(v).toLocaleString("pt-BR")
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

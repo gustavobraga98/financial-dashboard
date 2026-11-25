@@ -1,0 +1,58 @@
+<tr id="tx-row-{{ tx.id }}">
+  <td class="num text-muted">
+    <div>{{ tx.raw_date | date_br }}</div>
+    {% if tx.competence_month != tx.raw_date[:7] or show_raw %}
+    <div style="font-size: 11px;">Comp.: {{ tx.competence_month | month_short }}</div>
+    {% endif %}
+  </td>
+  <td>
+    <span class="tx-name">{{ tx.display_name }}</span>
+    {% if tx.installment_total %}
+    <span class="pill" style="margin-left: 6px;">{{ "%02d/%02d" | format(tx.installment_current, tx.installment_total) }}</span>
+    {% endif %}
+    {% if just_saved %}
+    <span class="pill pill-accent" style="margin-left: 6px;">Salvo{% if retro_updated and retro_updated > 1 %} · {{ retro_updated }} atualizados{% endif %}</span>
+    {% endif %}
+    {% if tx.display_name != tx.raw_description or show_raw %}
+    <span class="tx-raw">Extrato: {{ tx.raw_description }}</span>
+    {% endif %}
+    {% if tx.notes %}
+    <div style="font-size: 11.5px; color: var(--ink-muted); margin-top: 2px;">Nota: {{ tx.notes }}</div>
+    {% endif %}
+  </td>
+  <td>
+    <span class="legend-dot" style="background: {{ tx.bank_color }}"></span>
+    <span>{{ tx.bank_name }}</span>
+    <span class="text-muted">· {{ tx.account_name }}</span>
+  </td>
+  <td>
+    {% if tx.kind == 'transfer' %}
+    <span class="pill pill-transfer">Transferência / Fatura</span>
+    {% elif tx.category_name %}
+    <span class="pill"><span class="pill-dot" style="background: {{ tx.category_color }}"></span>{{ tx.category_name }}</span>
+    {% else %}
+    <span class="text-muted">Sem categoria</span>
+    {% endif %}
+  </td>
+  <td class="text-right num {% if tx.kind == 'income' %}text-income{% elif tx.kind == 'expense' %}text-expense{% else %}text-muted{% endif %}">
+    <strong>{{ tx.raw_amount_cents | brl_signed }}</strong>
+  </td>
+  <td class="text-right" style="white-space: nowrap;">
+    <button
+      type="button"
+      class="btn btn-sm"
+      hx-get="/lancamentos/{{ tx.id }}/edit?show_raw={{ 1 if show_raw else 0 }}"
+      hx-target="#tx-row-{{ tx.id }}"
+      hx-swap="outerHTML"
+    >Editar</button>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm"
+      style="color: var(--expense);"
+      hx-delete="/lancamentos/{{ tx.id }}"
+      hx-target="#tx-row-{{ tx.id }}"
+      hx-swap="outerHTML"
+      hx-confirm="Excluir este lançamento?"
+    >Excluir</button>
+  </td>
+</tr>
