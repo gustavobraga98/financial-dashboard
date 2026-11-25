@@ -218,7 +218,7 @@
             <td class="text-right num">
               {% if acc.account_type == 'credit_card' %}
               <span class="text-expense">{{ acc.bill_cents | brl }}</span>
-              <div style="font-size: 11px;" class="text-muted">fatura do mês</div>
+              <div style="font-size: 12px;" class="text-muted">fatura do mês</div>
               {% else %}
               <strong class="{% if acc.balance_cents >= 0 %}text-income{% else %}text-expense{% endif %}">{{ acc.balance_cents | brl }}</strong>
               {% endif %}
@@ -356,7 +356,7 @@ document.addEventListener("DOMContentLoaded", function () {
       },
       scales: {
         x: {
-          grid: { color: "#eceae2" },
+          grid: { color: "#e3eae7" },
           ticks: {
             callback: (v) => "R$ " + Number(v).toLocaleString("pt-BR")
           }

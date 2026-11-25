@@ -82,7 +82,7 @@
             <td class="num text-muted">{{ "%02d" | format(item.day_of_month) }}</td>
             <td>
               <div class="tx-name">{{ item.name }}</div>
-              <div style="font-size: 11.5px;" class="text-muted">
+              <div style="font-size: 12px;" class="text-muted">
                 {{ item.category_name }}{% if item.account_name %} · {{ item.account_name }}{% endif %}
                 {% if item.matched_tx_name %} · Casou com "{{ item.matched_tx_name }}"{% endif %}
               </div>
@@ -155,7 +155,7 @@
             <td>
               <div class="tx-name">{{ item.name }}</div>
               {% if item.matched_tx_name %}
-              <div style="font-size: 11.5px;" class="text-muted">Casou com "{{ item.matched_tx_name }}"</div>
+              <div style="font-size: 12px;" class="text-muted">Casou com "{{ item.matched_tx_name }}"</div>
               {% endif %}
             </td>
             <td>
@@ -399,7 +399,7 @@ document.addEventListener("DOMContentLoaded", function () {
       scales: {
         x: { grid: { display: false } },
         y: {
-          grid: { color: "#eceae2" },
+          grid: { color: "#e3eae7" },
           ticks: {
             callback: (v) => "R$ " + Number(v).toLocaleString("pt-BR")
           }
