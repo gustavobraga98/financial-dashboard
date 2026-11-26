@@ -26,6 +26,10 @@ def create_app() -> FastAPI:
     )
     application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+    @application.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     application.include_router(dashboard.router)
     application.include_router(transactions.router)
     application.include_router(imports.router)

@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: financial-dashboard
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      FINANCES_DB_PATH: /app/data/finances.db
+      TZ: ${TZ:-America/Sao_Paulo}
+    restart: unless-stopped
