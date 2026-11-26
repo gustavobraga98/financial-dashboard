@@ -3,7 +3,13 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from app.formatting import current_month, month_label, months_between, shift_month
+from app.formatting import (
+    current_month,
+    last_day_of_month,
+    month_label,
+    months_between,
+    shift_month,
+)
 from app.services.rules import normalize_text
 
 
@@ -67,7 +73,11 @@ def compute_account_balances(
         if acc["account_type"] == "credit_card":
             row = conn.execute(
                 """
-                SELECT COALESCE(SUM(CASE WHEN kind = 'expense' THEN ABS(raw_amount_cents) ELSE 0 END), 0) AS bill_cents,
+                SELECT COALESCE(SUM(
+                           CASE WHEN kind = 'expense' THEN ABS(raw_amount_cents)
+                                WHEN kind = 'income' THEN -ABS(raw_amount_cents)
+                                ELSE 0 END
+                       ), 0) AS bill_cents,
                        COUNT(*) AS tx_count
                 FROM transactions
                 WHERE account_id = ? AND competence_month = ?
@@ -90,24 +100,46 @@ def compute_account_balances(
                 }
             )
         else:
-            date_filter = ""
-            q_params: list[Any] = [acc["id"], month]
-            if acc["initial_balance_date"]:
-                date_filter = "AND raw_date >= ?"
-                q_params.append(acc["initial_balance_date"])
+            month_end = last_day_of_month(month)
+            anchor_cents = int(acc["initial_balance_cents"])
+            anchor_date = acc["initial_balance_date"]
 
-            # Transfers affect an account's real cash balance, so sum raw_amount_cents across all kinds
-            delta_row = conn.execute(
-                f"""
-                SELECT COALESCE(SUM(raw_amount_cents), 0) AS delta_cents,
-                       COUNT(*) AS tx_count
-                FROM transactions
-                WHERE account_id = ?
-                  AND competence_month <= ?
-                  {date_filter}
-                """,
-                q_params,
-            ).fetchone()
+            # Transfers affect an account's real cash balance, so sum raw_amount_cents across all kinds.
+            # The stored balance is a checkpoint at end of anchor_date: roll forward after it,
+            # trace backward (inverted signs) before it.
+            if anchor_date and month_end < anchor_date:
+                delta_row = conn.execute(
+                    """
+                    SELECT COALESCE(SUM(raw_amount_cents), 0) AS delta_cents,
+                           COUNT(*) AS tx_count
+                    FROM transactions
+                    WHERE account_id = ? AND raw_date > ? AND raw_date <= ?
+                    """,
+                    (acc["id"], month_end, anchor_date),
+                ).fetchone()
+                bal = anchor_cents - int(delta_row["delta_cents"])
+            elif anchor_date:
+                delta_row = conn.execute(
+                    """
+                    SELECT COALESCE(SUM(raw_amount_cents), 0) AS delta_cents,
+                           COUNT(*) AS tx_count
+                    FROM transactions
+                    WHERE account_id = ? AND raw_date > ? AND raw_date <= ?
+                    """,
+                    (acc["id"], anchor_date, month_end),
+                ).fetchone()
+                bal = anchor_cents + int(delta_row["delta_cents"])
+            else:
+                delta_row = conn.execute(
+                    """
+                    SELECT COALESCE(SUM(raw_amount_cents), 0) AS delta_cents,
+                           COUNT(*) AS tx_count
+                    FROM transactions
+                    WHERE account_id = ? AND raw_date <= ?
+                    """,
+                    (acc["id"], month_end),
+                ).fetchone()
+                bal = anchor_cents + int(delta_row["delta_cents"])
 
             month_flow = conn.execute(
                 """
@@ -118,7 +150,6 @@ def compute_account_balances(
                 (acc["id"], month),
             ).fetchone()
 
-            bal = int(acc["initial_balance_cents"]) + int(delta_row["delta_cents"])
             results.append(
                 {
                     "id": acc["id"],
@@ -156,6 +187,7 @@ def project_installments_for_month(
         LEFT JOIN categories c ON c.id = t.category_id
         WHERE {scope_sql}
           AND t.kind = 'expense'
+          AND a.account_type = 'credit_card'
           AND t.installment_current IS NOT NULL
           AND t.installment_total IS NOT NULL
           AND t.installment_current < t.installment_total

@@ -61,6 +61,21 @@
   <button type="submit" class="btn">Filtrar</button>
 </form>
 
+{% if bill_reconciliation and bill_reconciliation.payment_count > 0 %}
+<div class="bill-recon-box" style="margin-bottom: 16px;">
+  <span><strong>{{ bill_reconciliation.card_bank_name }} · {{ bill_reconciliation.card_account_name }}</strong> · {{ bill_reconciliation.competence_month | month_label }} ·
+    {{ bill_reconciliation.item_count }} item(ns) · fatura {{ bill_reconciliation.bill_cents | brl }} ·
+    pago {{ bill_reconciliation.paid_cents | brl }} ({{ bill_reconciliation.payment_count }} pagamento(s))</span>
+  {% if bill_reconciliation.status == 'matched' %}
+  <span class="pill pill-income">Bateu ✓</span>
+  {% elif bill_reconciliation.status == 'diff' %}
+  <span class="pill pill-warn">Diferença de {{ bill_reconciliation.abs_diff_cents | brl }}</span>
+  {% else %}
+  <span class="pill pill-warn">Sem itens</span>
+  {% endif %}
+</div>
+{% endif %}
+
 <section class="kpi-strip" style="margin-bottom: 16px;">
   <div class="kpi-cell">
     <div class="kpi-label">Lançamentos filtrados</div>

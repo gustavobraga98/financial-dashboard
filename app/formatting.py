@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import date
 
@@ -95,6 +96,16 @@ def parse_brl_to_cents(raw: str | int | float | None, decimal_sep: str | None = 
 def current_month() -> str:
     today = date.today()
     return f"{today.year:04d}-{today.month:02d}"
+
+
+def today_iso() -> str:
+    return date.today().isoformat()
+
+
+def last_day_of_month(month: str) -> str:
+    year, m = parse_month(month)
+    last_day = calendar.monthrange(year, m)[1]
+    return f"{year:04d}-{m:02d}-{last_day:02d}"
 
 
 def parse_month(month: str) -> tuple[int, int]:

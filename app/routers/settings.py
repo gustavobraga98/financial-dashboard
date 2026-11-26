@@ -6,7 +6,7 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.db import db_session
-from app.formatting import parse_brl_to_cents
+from app.formatting import parse_brl_to_cents, today_iso
 from app.services.rules import reapply_all_rules, upsert_rule
 from app.web import load_common_data, parse_optional_int, templates
 
@@ -52,6 +52,7 @@ def settings_page(
         {
             "active_nav": "settings",
             "active_tab": tab,
+            "today_iso": today_iso(),
             "rules": rules,
             "profiles": profiles,
             "flash_msg": msg,
@@ -94,8 +95,12 @@ def create_account(
         return RedirectResponse(url="/configuracoes?tab=accounts&error=" + quote("Informe o nome da conta."), status_code=303)
     if account_type not in ("checking", "credit_card", "savings"):
         account_type = "checking"
-    bal_cents = parse_brl_to_cents(initial_balance) if initial_balance.strip() else 0
-    bal_date = initial_balance_date.strip() or None
+    if account_type == "credit_card":
+        bal_cents = 0
+        bal_date = None
+    else:
+        bal_cents = parse_brl_to_cents(initial_balance) if initial_balance.strip() else 0
+        bal_date = initial_balance_date.strip() or None
 
     try:
         with db_session() as conn:
@@ -128,7 +133,7 @@ def update_account_balance(
             """,
             (bal_cents, bal_date, account_id),
         )
-    return RedirectResponse(url="/configuracoes?tab=accounts&msg=" + quote("Saldo inicial atualizado."), status_code=303)
+    return RedirectResponse(url="/configuracoes?tab=accounts&msg=" + quote("Saldo de referência atualizado."), status_code=303)
 
 
 @router.post("/accounts/{account_id}/delete")

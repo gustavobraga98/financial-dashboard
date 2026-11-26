@@ -28,6 +28,18 @@
   <td>
     {% if tx.kind == 'transfer' %}
     <span class="pill pill-transfer">Transferência / Fatura</span>
+    {% if tx.bill_link %}
+    <div class="bill-link-meta">
+      <a href="/lancamentos?month={{ tx.bill_link.competence_month }}&account_id={{ tx.bill_link.card_account_id }}">{{ tx.bill_link.card_account_name }} · {{ tx.bill_link.item_count }} {{ 'item' if tx.bill_link.item_count == 1 else 'itens' }}</a>
+      {% if tx.bill_link.status == 'matched' %}
+      <span class="pill pill-income">Bateu ✓</span>
+      {% elif tx.bill_link.status == 'diff' %}
+      <span class="pill pill-warn" title="Fatura: {{ tx.bill_link.bill_cents | brl }} · Pago: {{ tx.bill_link.paid_cents | brl }}">Diferença {{ tx.bill_link.abs_diff_cents | brl }}</span>
+      {% else %}
+      <span class="pill pill-warn">Sem itens</span>
+      {% endif %}
+    </div>
+    {% endif %}
     {% elif tx.category_name %}
     <span class="pill"><span class="pill-dot" style="background: {{ tx.category_color }}"></span>{{ tx.category_name }}</span>
     {% else %}
@@ -38,6 +50,15 @@
     <strong>{{ tx.raw_amount_cents | brl_signed }}</strong>
   </td>
   <td class="text-right" style="white-space: nowrap;">
+    {% if tx.kind == 'transfer' and tx.account_type in ('checking', 'savings') and tx.raw_amount_cents < 0 %}
+    <button
+      type="button"
+      class="btn btn-sm"
+      hx-get="/lancamentos/{{ tx.id }}/detalhar?show_raw={{ 1 if show_raw else 0 }}"
+      hx-target="#tx-row-{{ tx.id }}"
+      hx-swap="outerHTML"
+    >{{ 'Fatura' if tx.bill_link else 'Detalhar fatura' }}</button>
+    {% endif %}
     <button
       type="button"
       class="btn btn-sm"

@@ -86,8 +86,8 @@ def test_credit_csv_import_installments_dedup_and_billing_month(tmp_path: Path):
         assert amazon["competence_month"] == "2026-11"
         assert amazon["raw_description"] == "AMAZON BR 03/06"
         assert amazon["display_name"] == "Amazon"
-        assert amazon["installment_current"] == 3
-        assert amazon["installment_total"] == 6
+        assert amazon["installment_current"] is None
+        assert amazon["installment_total"] is None
         assert amazon["raw_amount_cents"] == -25000
         assert amazon["kind"] == "expense"
 
@@ -166,3 +166,102 @@ def test_semicolon_checking_statement_inspection_and_import(tmp_path: Path):
         assert preview["rows"][1]["raw_amount_cents"] == -220050
         assert preview["rows"][1]["kind"] == "expense"
         assert preview["rows"][1]["competence_month"] == "2026-11"
+
+
+def _build_xlsx() -> bytes:
+    import io
+    from datetime import date
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "Resumo"
+    ws = wb.create_sheet("Extrato")
+    ws.append(["Extrato Itaú"])
+    ws.append(["Ag 0001", "CC 12345"])
+    ws.append(["Data", "Lançamento", "Valor", "Obs"])
+    ws.append([date(2026, 11, 1), "SALARIO EMPRESA", 8500.0, None])
+    ws.append([date(2026, 11, 5), "ALUGUEL APTO", -2200.5, None])
+    ws.append([date(2026, 11, 10), "PAGTO FATURA CARTAO", -1500.0, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_xlsx_inspection_banner_skip_multisheet_and_import(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _, checking_id, _ = _seed_bank_and_accounts(db_path)
+    xlsx_bytes = _build_xlsx()
+
+    inspected = inspect_csv(xlsx_bytes, filename="extrato.xlsx")
+    assert inspected["file_format"] == "xlsx"
+    assert inspected["sheet_name"] == "Extrato"
+    assert inspected["sheet_names"] == ["Resumo", "Extrato"]
+    sugg = inspected["suggested"]
+    assert sugg["skip_rows"] == 2
+    assert sugg["date_column"] == "Data"
+    assert sugg["description_column"] == "Lançamento"
+    assert sugg["amount_column"] == "Valor"
+    assert sugg["decimal_separator"] == "."
+
+    config = {
+        "has_header": True,
+        "date_column": sugg["date_column"],
+        "description_column": sugg["description_column"],
+        "amount_column": sugg["amount_column"],
+        "date_format": sugg["date_format"],
+        "decimal_separator": sugg["decimal_separator"],
+        "expense_sign": "negative",
+        "skip_rows": sugg["skip_rows"],
+        "sheet_name": inspected["sheet_name"],
+    }
+    with db_session(db_path) as conn:
+        preview = preview_csv_import(
+            conn, file_bytes=xlsx_bytes, account_id=checking_id, config=config, filename="extrato.xlsx"
+        )
+        assert preview["errors"] == []
+        assert [r["raw_amount_cents"] for r in preview["rows"]] == [850000, -220050, -150000]
+        assert [r["raw_date"] for r in preview["rows"]] == ["2026-11-01", "2026-11-05", "2026-11-10"]
+        commit_csv_import(
+            conn,
+            account_id=checking_id,
+            profile_id=None,
+            filename="extrato.xlsx",
+            competence_month=None,
+            rows=preview["rows"],
+        )
+        again = preview_csv_import(
+            conn, file_bytes=xlsx_bytes, account_id=checking_id, config=config, filename="extrato.xlsx"
+        )
+        assert again["duplicate_count"] == 3
+
+
+def test_file_format_detection_and_text_xls_fallback():
+    from app.services.csv_importer import detect_file_format
+
+    assert detect_file_format(b"PK\x03\x04rest") == "xlsx"
+    assert detect_file_format(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest") == "xls"
+    assert detect_file_format(b"01/11/2026;SALARIO;10,00\n", "extrato.xls") == "csv"
+
+
+def test_dd_mm_in_description_is_not_inferred_as_installment(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _, checking_id, _ = _seed_bank_and_accounts(db_path)
+    csv_bytes = b"05/11/2026;PIX ENVIADO 05/11;-100,00\n"
+    config = {
+        "delimiter": ";",
+        "has_header": False,
+        "date_column": "0",
+        "description_column": "1",
+        "amount_column": "2",
+        "date_format": "%d/%m/%Y",
+        "decimal_separator": ",",
+        "expense_sign": "negative",
+    }
+    with db_session(db_path) as conn:
+        preview = preview_csv_import(conn, file_bytes=csv_bytes, account_id=checking_id, config=config)
+        row = preview["rows"][0]
+        assert row["display_name"] == "PIX ENVIADO 05/11"
+        assert row["installment_current"] is None
+        assert row["installment_total"] is None
+        assert row["installment_group_key"] is None

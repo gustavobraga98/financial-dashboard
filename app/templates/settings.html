@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Configurações</h1>
-    <p class="page-subtitle">Gerencie seus bancos, contas, saldos iniciais, categorias, orçamentos, regras e perfis de importação.</p>
+    <p class="page-subtitle">Gerencie seus bancos, contas, saldos de referência, categorias, orçamentos, regras e perfis de importação.</p>
   </div>
 </div>
 
@@ -79,22 +79,23 @@
 
         <div class="field">
           <label>Tipo</label>
-          <select name="account_type" class="select">
+          <select name="account_type" id="new-account-type" class="select">
             <option value="checking">Conta Corrente</option>
             <option value="credit_card">Cartão de Crédito</option>
             <option value="savings">Poupança / Reserva</option>
           </select>
         </div>
 
-        <div class="field">
-          <label>Saldo inicial (R$)</label>
+        <div class="field js-balance-field">
+          <label>Saldo atual (R$)</label>
           <input type="text" name="initial_balance" class="input" placeholder="0,00">
-          <span class="field-hint">Para contas correntes/reserva</span>
+          <span class="field-hint">Quanto a conta tem hoje (meses anteriores são calculados retroativamente)</span>
         </div>
 
-        <div class="field">
-          <label>Data do saldo inicial</label>
-          <input type="date" name="initial_balance_date" class="input">
+        <div class="field js-balance-field">
+          <label>Data de referência do saldo</label>
+          <input type="date" name="initial_balance_date" class="input" value="{{ today_iso }}">
+          <span class="field-hint">Lançamentos até esta data já entram nesse saldo</span>
         </div>
 
         <div>
@@ -113,13 +114,14 @@
   <div class="panel-header">
     <h2 class="panel-title">Contas cadastradas e checkpoint de saldo</h2>
   </div>
+  <p class="text-muted" style="margin: 0; padding: 0 16px 12px; font-size: 12.5px;">Meses anteriores à data de referência são reconstruídos retroativamente (entradas e saídas invertidas); meses posteriores somam normalmente.</p>
   <div class="table-wrap">
     <table class="ledger">
       <thead>
         <tr>
           <th>Banco / Conta</th>
           <th>Tipo</th>
-          <th>Saldo inicial e data de referência</th>
+          <th>Saldo de referência e data</th>
           <th class="text-right">Ação</th>
         </tr>
       </thead>
@@ -134,8 +136,8 @@
           <td>
             {% if a.account_type != 'credit_card' %}
             <form method="post" action="/configuracoes/accounts/{{ a.id }}/balance" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-              <input type="text" name="initial_balance" value="{{ a.initial_balance_cents | brl_input }}" class="input input-sm" style="width: 115px;" aria-label="Saldo inicial">
-              <input type="date" name="initial_balance_date" value="{{ a.initial_balance_date or '' }}" class="input input-sm" aria-label="Data do saldo">
+              <input type="text" name="initial_balance" value="{{ a.initial_balance_cents | brl_input }}" class="input input-sm" style="width: 115px;" aria-label="Saldo de referência">
+              <input type="date" name="initial_balance_date" value="{{ a.initial_balance_date or '' }}" class="input input-sm" aria-label="Data de referência do saldo">
               <button type="submit" class="btn btn-sm">Salvar saldo</button>
             </form>
             {% else %}
@@ -364,4 +366,22 @@
   </div>
 </section>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const sel = document.getElementById("new-account-type");
+  if (!sel) return;
+  function sync() {
+    const hide = sel.value === "credit_card";
+    document.querySelectorAll(".js-balance-field").forEach(function (f) {
+      f.style.display = hide ? "none" : "";
+      f.querySelectorAll("input").forEach(function (i) { i.disabled = hide; });
+    });
+  }
+  sel.addEventListener("change", sync);
+  sync();
+});
+</script>
 {% endblock %}

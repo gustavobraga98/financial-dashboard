@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS recurring_matches (
     UNIQUE(recurring_item_id, competence_month)
 );
 
+CREATE TABLE IF NOT EXISTS bill_payment_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    payment_transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id) ON DELETE CASCADE,
+    card_account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    competence_month TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_bill_links_card_month ON bill_payment_links(card_account_id, competence_month);
 CREATE INDEX IF NOT EXISTS idx_tx_competence ON transactions(competence_month);
 CREATE INDEX IF NOT EXISTS idx_tx_account_month ON transactions(account_id, competence_month);
 CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_id, raw_date);

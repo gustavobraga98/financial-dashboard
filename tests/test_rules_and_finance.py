@@ -30,7 +30,7 @@ def test_balances_transfers_budgets_planning_and_installment_projection(tmp_path
         checking_id = conn.execute(
             """
             INSERT INTO accounts (bank_id, name, account_type, initial_balance_cents, initial_balance_date)
-            VALUES (?, 'NuConta', 'checking', 500000, '2026-11-01')
+            VALUES (?, 'NuConta', 'checking', 500000, '2026-10-31')
             """,
             (bank_id,),
         ).lastrowid
@@ -148,6 +148,26 @@ def test_balances_transfers_budgets_planning_and_installment_projection(tmp_path
         assert nov_plan["available_cents"] == 615000
 
         # Verify Dec 2026 lookahead projects installment 03/04 (350) + Jan 2027 projects 04/04 (350), Feb 2027 has 0!
+        # DD/MM-like text is NOT inferred as an installment: nothing is projected automatically
+        lookahead = get_lookahead(conn, "2026-11", months=4)
+        assert all(len(m["projected_installments"]) == 0 for m in lookahead)
+
+        # Explicitly registered installments (future card operations) still project
+        conn.execute(
+            """
+            UPDATE transactions
+            SET installment_current = 2, installment_total = 4, installment_group_key = 'notebook store'
+            WHERE raw_description = 'NOTEBOOK STORE 02/04'
+            """
+        )
+        # Installment fields on a non-credit-card account must be ignored
+        conn.execute(
+            """
+            UPDATE transactions
+            SET installment_current = 1, installment_total = 3, installment_group_key = 'aluguel'
+            WHERE raw_description = 'ALUGUEL'
+            """
+        )
         lookahead = get_lookahead(conn, "2026-11", months=4)
         dec_plan = lookahead[1]
         jan_plan = lookahead[2]
@@ -158,3 +178,52 @@ def test_balances_transfers_budgets_planning_and_installment_projection(tmp_path
         assert len(jan_plan["projected_installments"]) == 1
         assert jan_plan["projected_installments"][0]["installment_label"] == "04/04"
         assert len(feb_plan["projected_installments"]) == 0
+
+
+def test_balance_anchor_traceback_and_forward_roll(tmp_path: Path):
+    db_path = tmp_path / "anchor.db"
+    init_db(db_path)
+
+    with db_session(db_path) as conn:
+        bank_id = conn.execute("INSERT INTO banks (name) VALUES ('Inter')").lastrowid
+        acc_id = conn.execute(
+            """
+            INSERT INTO accounts (bank_id, name, account_type, initial_balance_cents, initial_balance_date)
+            VALUES (?, 'Conta', 'checking', 150000, '2026-11-25')
+            """,
+            (bank_id,),
+        ).lastrowid
+
+        txs = [
+            ("2026-09-15", -50000, "expense"),
+            ("2026-10-05", 500000, "income"),
+            ("2026-10-20", -200000, "expense"),
+            ("2026-11-05", 500000, "income"),
+            ("2026-11-10", -100000, "transfer"),
+            ("2026-11-25", -5000, "expense"),
+            ("2026-11-28", -15000, "expense"),
+            ("2026-12-05", 500000, "income"),
+        ]
+        for i, (d, amt, kind) in enumerate(txs):
+            conn.execute(
+                """
+                INSERT INTO transactions (account_id, raw_date, raw_description, raw_amount_cents,
+                                          dedup_hash, competence_month, display_name, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (acc_id, d, f"TX{i}", amt, f"h{i}", d[:7], f"TX{i}", kind),
+            )
+
+        def bal(month: str) -> int:
+            rows = compute_account_balances(conn, month)
+            return next(a for a in rows if a["id"] == acc_id)["balance_cents"]
+
+        assert bal("2026-08") == -495000
+        assert bal("2026-09") == -545000
+        assert bal("2026-10") == -245000
+        assert bal("2026-11") == 135000
+        assert bal("2026-12") == 635000
+
+        # Without an anchor date, balance is initial + cumulative sum up to month end
+        conn.execute("UPDATE accounts SET initial_balance_date = NULL WHERE id = ?", (acc_id,))
+        assert bal("2026-10") == 150000 - 50000 + 500000 - 200000

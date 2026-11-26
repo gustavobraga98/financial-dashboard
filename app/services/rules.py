@@ -37,8 +37,7 @@ def extract_installment(raw_description: str) -> tuple[int | None, int | None, s
 
 
 def normalize_text(text: str) -> str:
-    _, _, cleaned = extract_installment(text or "")
-    no_accents = strip_accents(cleaned).lower()
+    no_accents = strip_accents(text or "").lower()
     collapsed = re.sub(r"\s+", " ", no_accents).strip()
     return collapsed
 

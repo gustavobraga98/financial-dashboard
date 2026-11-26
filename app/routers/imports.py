@@ -8,9 +8,15 @@ from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.db import db_session
+from app.services.bills import (
+    compute_card_bill_net_cents,
+    compute_import_preview_reconciliation,
+    get_payment_context_for_import,
+    link_payment_to_bill,
+)
 from app.services.csv_importer import (
     commit_csv_import,
-    delete_import_batch,
+    delete_import_batch_with_details,
     inspect_csv,
     preview_csv_import,
 )
@@ -63,9 +69,32 @@ def _load_import_context(conn) -> dict[str, Any]:
 
 
 @router.get("", response_class=HTMLResponse)
-def import_page(request: Request, msg: str | None = Query(default=None), error: str | None = Query(default=None)):
+def import_page(
+    request: Request,
+    msg: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    link_payment_id: str | None = Query(default=None),
+    account_id: str | None = Query(default=None),
+    competence_month: str | None = Query(default=None),
+):
+    parsed_account_id = parse_optional_int(account_id)
+    selected_month = (competence_month or "").strip()
     with db_session() as conn:
         ctx = _load_import_context(conn)
+        link_payment = get_payment_context_for_import(conn, parse_optional_int(link_payment_id))
+        if link_payment:
+            if not selected_month:
+                selected_month = link_payment["competence_month"]
+            card_accounts = [a for a in ctx["accounts"] if a["account_type"] == "credit_card"]
+            valid_card_ids = {a["id"] for a in card_accounts}
+            if parsed_account_id not in valid_card_ids:
+                same_bank = next(
+                    (a for a in card_accounts if a["bank_id"] == link_payment["bank_id"]), None
+                )
+                parsed_account_id = (
+                    same_bank["id"] if same_bank else (card_accounts[0]["id"] if card_accounts else None)
+                )
+
     return templates.TemplateResponse(
         request,
         "import.html",
@@ -74,6 +103,10 @@ def import_page(request: Request, msg: str | None = Query(default=None), error: 
             "flash_msg": msg,
             "error_msg": error,
             "preview": None,
+            "link_payment": link_payment,
+            "selected_account_id": parsed_account_id,
+            "competence_month": selected_month,
+            "preview_reconciliation": None,
             **ctx,
         },
     )
@@ -86,6 +119,7 @@ async def import_preview(
     profile_id: str = Form(default="auto"),
     competence_month: str = Form(default=""),
     stage_token: str = Form(default=""),
+    link_payment_id: str = Form(default=""),
     csv_file: UploadFile | None = File(default=None),
     # Optional custom overrides when user adjusts mapping in preview
     custom_mapping: str | None = Form(default=None),
@@ -99,6 +133,7 @@ async def import_preview(
     decimal_separator: str = Form(default="."),
     expense_sign: str = Form(default="negative"),
     skip_rows: int = Form(default=0),
+    sheet_name: str = Form(default=""),
 ):
     if csv_file is not None and csv_file.filename:
         file_bytes = await csv_file.read()
@@ -115,7 +150,13 @@ async def import_preview(
             status_code=303,
         )
 
-    inspection = inspect_csv(file_bytes)
+    inspection = inspect_csv(
+        file_bytes,
+        filename=filename,
+        sheet_name=sheet_name.strip() or None,
+        skip_rows=skip_rows if custom_mapping else None,
+    )
+    chosen_sheet = sheet_name.strip() or inspection.get("sheet_name", "")
 
     with db_session() as conn:
         ctx = _load_import_context(conn)
@@ -139,6 +180,7 @@ async def import_preview(
                 "decimal_separator": decimal_separator,
                 "expense_sign": expense_sign,
                 "skip_rows": skip_rows,
+                "sheet_name": chosen_sheet,
             }
         elif selected_profile_id is not None:
             prof = next((p for p in ctx["profiles"] if p["id"] == selected_profile_id), None)
@@ -158,6 +200,7 @@ async def import_preview(
                 "decimal_separator": prof["decimal_separator"],
                 "expense_sign": prof["expense_sign"],
                 "skip_rows": prof["skip_rows"],
+                "sheet_name": chosen_sheet,
             }
         else:
             # Auto-detect from CSV + account type
@@ -173,11 +216,14 @@ async def import_preview(
                 "date_format": sugg.get("date_format", "%d/%m/%Y"),
                 "decimal_separator": sugg.get("decimal_separator", ","),
                 "expense_sign": default_sign,
-                "skip_rows": 0,
+                "skip_rows": int(sugg.get("skip_rows", 0)),
+                "sheet_name": inspection.get("sheet_name", ""),
             }
 
         preview_error = None
         preview = None
+        preview_reconciliation = None
+        link_payment = get_payment_context_for_import(conn, parse_optional_int(link_payment_id))
         try:
             preview = preview_csv_import(
                 conn,
@@ -185,9 +231,19 @@ async def import_preview(
                 account_id=account_id,
                 config=config,
                 competence_month=competence_month.strip() or None,
+                filename=filename,
             )
         except Exception as exc:
             preview_error = str(exc)
+
+        if preview and link_payment and account["account_type"] == "credit_card":
+            preview_reconciliation = compute_import_preview_reconciliation(
+                conn,
+                payment_tx=link_payment,
+                card_account_id=account_id,
+                competence_month=preview["suggested_competence_month"],
+                preview_rows=preview["rows"],
+            )
 
     return templates.TemplateResponse(
         request,
@@ -202,6 +258,8 @@ async def import_preview(
             "filename": filename,
             "selected_account_id": account_id,
             "selected_profile_id": selected_profile_id,
+            "link_payment": link_payment,
+            "preview_reconciliation": preview_reconciliation,
             "competence_month": (
                 preview["suggested_competence_month"]
                 if preview
@@ -214,7 +272,7 @@ async def import_preview(
 
 @router.post("/commit")
 async def import_commit(request: Request):
-    form = await request.form()
+    form = await request.form(max_fields=100_000, max_part_size=10 * 1024 * 1024)
     stage_token = str(form.get("stage_token", ""))
     if stage_token not in _STAGED_UPLOADS:
         return RedirectResponse(
@@ -226,6 +284,7 @@ async def import_commit(request: Request):
     account_id = int(str(form.get("account_id")))
     selected_profile_id = parse_optional_int(str(form.get("profile_id", "")))
     competence_month = str(form.get("competence_month", "")).strip() or None
+    link_payment_id = parse_optional_int(str(form.get("link_payment_id", "")))
 
     config = {
         "delimiter": str(form.get("delimiter", ",")),
@@ -238,9 +297,14 @@ async def import_commit(request: Request):
         "decimal_separator": str(form.get("decimal_separator", ".")),
         "expense_sign": str(form.get("expense_sign", "negative")),
         "skip_rows": int(str(form.get("skip_rows", "0") or "0")),
+        "sheet_name": str(form.get("sheet_name", "")).strip(),
     }
 
-    selected_indices = {int(v) for v in form.getlist("selected_rows") if str(v).isdigit()}
+    if "selected_rows_csv" in form:
+        raw_csv = str(form.get("selected_rows_csv", "")).strip()
+        selected_indices = {int(v) for v in raw_csv.split(",") if v.strip().isdigit()}
+    else:
+        selected_indices = {int(v) for v in form.getlist("selected_rows") if str(v).isdigit()}
     save_profile_name = str(form.get("save_profile_name", "")).strip()
 
     with db_session() as conn:
@@ -306,6 +370,7 @@ async def import_commit(request: Request):
             account_id=account_id,
             config=config,
             competence_month=competence_month,
+            filename=staged["filename"],
         )
         result = commit_csv_import(
             conn,
@@ -319,10 +384,27 @@ async def import_commit(request: Request):
             selected_indices=selected_indices,
         )
 
+        linked_recon = None
+        if link_payment_id is not None and preview["account"]["account_type"] == "credit_card":
+            target_bill_month = preview["suggested_competence_month"]
+            _, item_count = compute_card_bill_net_cents(conn, account_id, target_bill_month)
+            if result["imported_count"] > 0 or item_count > 0:
+                try:
+                    linked_recon = link_payment_to_bill(
+                        conn, link_payment_id, account_id, target_bill_month
+                    )
+                except ValueError:
+                    linked_recon = None
+
     _STAGED_UPLOADS.pop(stage_token, None)
     msg = f"Importados {result['imported_count']} lançamento(s)"
     if result["skipped_count"] > 0:
         msg += f" ({result['skipped_count']} ignorado(s))"
+    if linked_recon is not None:
+        if linked_recon["status"] == "matched":
+            msg += " · Pagamento vinculado à fatura (Bateu ✓)"
+        else:
+            msg += " · Pagamento vinculado à fatura (há diferença de valor)"
     target_month = preview["suggested_competence_month"]
     return RedirectResponse(
         url=f"/lancamentos?month={target_month}&account_id={account_id}&msg={quote(msg)}",
@@ -333,6 +415,8 @@ async def import_commit(request: Request):
 @router.post("/batches/{batch_id}/delete")
 def undo_import_batch(batch_id: int):
     with db_session() as conn:
-        removed = delete_import_batch(conn, batch_id)
-    msg = f"Importação desfeita ({removed} lançamento(s) removido(s))."
+        details = delete_import_batch_with_details(conn, batch_id)
+    msg = f"Importação desfeita ({details['removed_count']} lançamento(s) removido(s))."
+    if details["reverted_payments"] > 0:
+        msg += f" {details['reverted_payments']} pagamento(s) de fatura voltaram para Despesa."
     return RedirectResponse(url=f"/importar?msg={quote(msg)}", status_code=303)

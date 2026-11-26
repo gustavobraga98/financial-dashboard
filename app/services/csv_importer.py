@@ -6,11 +6,153 @@ import io
 import json
 import sqlite3
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from app.formatting import current_month, parse_brl_to_cents
-from app.services.rules import extract_installment, find_matching_rule, normalize_text
+from app.services.rules import find_matching_rule, normalize_text
+
+XLSX_MAGIC = b"PK\x03\x04"
+XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def detect_file_format(file_bytes: bytes, filename: str | None = None) -> str:
+    if file_bytes.startswith(XLSX_MAGIC):
+        return "xlsx"
+    if file_bytes.startswith(XLS_MAGIC):
+        return "xls"
+    ext = filename.lower().rsplit(".", 1)[-1] if filename and "." in filename else ""
+    if ext in ("xlsx", "xlsm"):
+        return "xlsx"
+    # Many banks export text files named .xls; without OLE2 magic treat as CSV.
+    return "csv"
+
+
+def _normalize_excel_cell(val: Any) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, (datetime, date)):
+        return val.strftime("%Y-%m-%d")
+    if isinstance(val, bool):
+        return str(val)
+    if isinstance(val, int):
+        return str(val)
+    if isinstance(val, float):
+        if val.is_integer():
+            return str(int(val))
+        return f"{round(val, 6):.6f}".rstrip("0").rstrip(".")
+    return str(val).strip()
+
+
+def _trim_row(row: list[str]) -> list[str]:
+    while row and row[-1] == "":
+        row.pop()
+    return row
+
+
+def _read_spreadsheet_rows(
+    file_bytes: bytes, file_format: str, sheet_name: str | None = None
+) -> tuple[list[list[str]], list[str], str]:
+    rows: list[list[str]] = []
+    if file_format == "xlsx":
+        import openpyxl
+
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        try:
+            sheet_names = list(wb.sheetnames)
+            if not sheet_names:
+                return [], [], ""
+            chosen = sheet_name if sheet_name in sheet_names else None
+            if chosen is None:
+                for name in sheet_names:
+                    ws_probe = wb[name]
+                    found = False
+                    for i, r in enumerate(ws_probe.iter_rows(values_only=True)):
+                        if i >= 20:
+                            break
+                        if any(c not in (None, "") for c in r):
+                            found = True
+                            break
+                    if found:
+                        chosen = name
+                        break
+                if chosen is None:
+                    chosen = sheet_names[0]
+            ws = wb[chosen]
+            for r in ws.iter_rows(values_only=True):
+                str_row = _trim_row([_normalize_excel_cell(c) for c in r])
+                if any(str_row):
+                    rows.append(str_row)
+            return rows, sheet_names, chosen
+        finally:
+            wb.close()
+
+    import xlrd
+
+    wb = xlrd.open_workbook(file_contents=file_bytes)
+    sheet_names = list(wb.sheet_names())
+    if not sheet_names:
+        return [], [], ""
+    chosen = sheet_name if sheet_name in sheet_names else None
+    if chosen is None:
+        chosen = next((n for n in sheet_names if wb.sheet_by_name(n).nrows > 0), sheet_names[0])
+    sh = wb.sheet_by_name(chosen)
+    for ridx in range(sh.nrows):
+        out: list[str] = []
+        for cell in sh.row(ridx):
+            if cell.ctype == xlrd.XL_CELL_DATE:
+                out.append(xlrd.xldate_as_datetime(cell.value, wb.datemode).strftime("%Y-%m-%d"))
+            elif cell.ctype == xlrd.XL_CELL_EMPTY:
+                out.append("")
+            else:
+                out.append(_normalize_excel_cell(cell.value))
+        out = _trim_row(out)
+        if any(out):
+            rows.append(out)
+    return rows, sheet_names, chosen
+
+
+_DATE_KW = ("data", "date", "dt")
+_DESC_KW = ("lancamento", "descricao", "historico", "estabelecimento", "title", "memo", "description")
+_AMT_KW = ("valor", "amount", "quantia", "total", "credito", "debito")
+
+
+def _detect_table_start(raw_rows: list[list[str]]) -> int:
+    window = raw_rows[:25]
+    for idx, row in enumerate(window):
+        cells = [c for c in row if c.strip()]
+        if len(cells) < 3:
+            continue
+        norm = [normalize_text(c) for c in cells]
+        groups = sum(
+            1
+            for kws in (_DATE_KW, _DESC_KW, _AMT_KW)
+            if any(any(k in n for k in kws) for n in norm)
+        )
+        if groups >= 2:
+            return idx
+    for idx, row in enumerate(window):
+        cells = [c for c in row if c.strip()]
+        if len(cells) < 3:
+            continue
+        date_ok = amt_ok = False
+        for c in cells:
+            if not date_ok:
+                try:
+                    parse_date_flexible(c)
+                    date_ok = True
+                    continue
+                except ValueError:
+                    pass
+            if not amt_ok:
+                try:
+                    parse_brl_to_cents(c)
+                    amt_ok = True
+                except ValueError:
+                    pass
+        if date_ok and amt_ok:
+            return idx
+    return 0
 
 DATE_FORMATS_TO_TRY = [
     "%Y-%m-%d",
@@ -121,11 +263,27 @@ def _guess_decimal_separator(samples: list[str]) -> str:
     return "," if comma_dec > dot_dec else "."
 
 
-def inspect_csv(file_bytes: bytes, preferred_encoding: str = "utf-8-sig") -> dict[str, Any]:
-    text, used_encoding = decode_csv_bytes(file_bytes, preferred_encoding)
-    delimiter = detect_delimiter(text)
-    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
-    raw_rows = [row for row in reader if any(cell.strip() for cell in row)]
+def inspect_csv(
+    file_bytes: bytes,
+    preferred_encoding: str = "utf-8-sig",
+    filename: str | None = None,
+    sheet_name: str | None = None,
+    skip_rows: int | None = None,
+) -> dict[str, Any]:
+    file_format = detect_file_format(file_bytes, filename)
+    sheet_names: list[str] = []
+    chosen_sheet = ""
+    if file_format in ("xlsx", "xls"):
+        raw_rows, sheet_names, chosen_sheet = _read_spreadsheet_rows(
+            file_bytes, file_format, sheet_name=sheet_name
+        )
+        used_encoding = file_format
+        delimiter = ","
+    else:
+        text, used_encoding = decode_csv_bytes(file_bytes, preferred_encoding)
+        delimiter = detect_delimiter(text)
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+        raw_rows = [row for row in reader if any(cell.strip() for cell in row)]
 
     if not raw_rows:
         return {
@@ -135,9 +293,18 @@ def inspect_csv(file_bytes: bytes, preferred_encoding: str = "utf-8-sig") -> dic
             "columns": [],
             "sample_rows": [],
             "suggested": {},
+            "file_format": file_format,
+            "sheet_names": sheet_names,
+            "sheet_name": chosen_sheet,
         }
 
-    first_row = raw_rows[0]
+    detected_skip = skip_rows if skip_rows is not None else _detect_table_start(raw_rows)
+    effective_rows = raw_rows[detected_skip:] if detected_skip > 0 else raw_rows
+    if not effective_rows:
+        effective_rows = raw_rows
+        detected_skip = 0
+
+    first_row = effective_rows[0]
     # Heuristic: if first row contains a parseable date in col 0 or a monetary value, likely no header
     first_looks_like_data = False
     if first_row:
@@ -150,10 +317,10 @@ def inspect_csv(file_bytes: bytes, preferred_encoding: str = "utf-8-sig") -> dic
     has_header = not first_looks_like_data
     if has_header:
         columns = [c.strip() for c in first_row]
-        data_rows = raw_rows[1:8]
+        data_rows = effective_rows[1:8]
     else:
         columns = [str(i) for i in range(len(first_row))]
-        data_rows = raw_rows[:7]
+        data_rows = effective_rows[:7]
 
     # Suggest column mapping
     date_col = columns[0] if columns else ""
@@ -188,7 +355,12 @@ def inspect_csv(file_bytes: bytes, preferred_encoding: str = "utf-8-sig") -> dic
             "amount_column": amt_col,
             "date_format": _guess_date_format(date_samples),
             "decimal_separator": _guess_decimal_separator(amt_samples),
+            "skip_rows": detected_skip,
+            "sheet_name": chosen_sheet,
         },
+        "file_format": file_format,
+        "sheet_names": sheet_names,
+        "sheet_name": chosen_sheet,
     }
 
 
@@ -226,6 +398,7 @@ def preview_csv_import(
     account_id: int,
     config: dict[str, Any],
     competence_month: str | None = None,
+    filename: str | None = None,
 ) -> dict[str, Any]:
     account = conn.execute(
         """
@@ -249,9 +422,16 @@ def preview_csv_import(
     decimal_sep = config.get("decimal_separator") or "."
     expense_sign = config.get("expense_sign") or "negative"
 
-    text, used_encoding = decode_csv_bytes(file_bytes, encoding)
-    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
-    all_rows = [row for row in reader if any(cell.strip() for cell in row)]
+    file_format = detect_file_format(file_bytes, filename)
+    if file_format in ("xlsx", "xls"):
+        all_rows, _, _ = _read_spreadsheet_rows(
+            file_bytes, file_format, sheet_name=config.get("sheet_name") or None
+        )
+        used_encoding = file_format
+    else:
+        text, used_encoding = decode_csv_bytes(file_bytes, encoding)
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+        all_rows = [row for row in reader if any(cell.strip() for cell in row)]
     if skip_rows > 0:
         all_rows = all_rows[skip_rows:]
 
@@ -319,8 +499,9 @@ def preview_csv_import(
             )
             is_duplicate = dedup_hash in existing_hashes
 
-            inst_curr, inst_total, cleaned_desc = extract_installment(raw_desc)
-            inst_group_key = normalize_text(cleaned_desc) if inst_total else None
+            # Installments are NOT inferred from DD/MM-like text in bank statements.
+            inst_curr = inst_total = None
+            inst_group_key = None
 
             # Default kind based on sign and account type
             if raw_amount_cents < 0:
@@ -334,7 +515,7 @@ def preview_csv_import(
                 else:
                     kind = "income"
 
-            display_name = cleaned_desc if inst_total else raw_desc
+            display_name = raw_desc
             category_id = None
             matched_rule_name = None
 
@@ -471,9 +652,40 @@ def commit_csv_import(
     }
 
 
-def delete_import_batch(conn: sqlite3.Connection, batch_id: int) -> int:
-    row = conn.execute("SELECT row_count FROM import_batches WHERE id = ?", (batch_id,)).fetchone()
+def delete_import_batch_with_details(conn: sqlite3.Connection, batch_id: int) -> dict[str, int]:
+    from app.services.bills import reconcile_links_after_card_changes
+
+    row = conn.execute(
+        """
+        SELECT ib.row_count, a.account_type
+        FROM import_batches ib JOIN accounts a ON a.id = ib.account_id
+        WHERE ib.id = ?
+        """,
+        (batch_id,),
+    ).fetchone()
     if not row:
-        return 0
+        return {"removed_count": 0, "reverted_payments": 0}
+
+    affected: list[tuple[int, str]] = []
+    if row["account_type"] == "credit_card":
+        affected = [
+            (int(r["account_id"]), r["competence_month"])
+            for r in conn.execute(
+                """
+                SELECT DISTINCT account_id, competence_month
+                FROM transactions WHERE import_batch_id = ?
+                """,
+                (batch_id,),
+            ).fetchall()
+        ]
+
     conn.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
-    return int(row["row_count"])
+
+    reverted = 0
+    for acc_id, comp_month in affected:
+        reverted += reconcile_links_after_card_changes(conn, acc_id, comp_month)
+    return {"removed_count": int(row["row_count"]), "reverted_payments": reverted}
+
+
+def delete_import_batch(conn: sqlite3.Connection, batch_id: int) -> int:
+    return delete_import_batch_with_details(conn, batch_id)["removed_count"]

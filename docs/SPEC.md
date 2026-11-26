@@ -23,7 +23,7 @@ Uma aplicação financeira **100% local e sem overengineering** para consolidar 
 
 ### `accounts`
 - `id`, `bank_id` (FK), `name` (ex.: Conta Corrente, Cartão Black), `account_type` (`checking` | `credit_card` | `savings`)
-- `initial_balance_cents` (inteiro, padrão `0`), `initial_balance_date` (`YYYY-MM-DD`, opcional) — checkpoint de saldo para contas correntes/poupança.
+- `initial_balance_cents` (inteiro, padrão `0`), `initial_balance_date` (`YYYY-MM-DD`, opcional) — checkpoint de saldo para contas correntes/poupança. O usuário informa o **saldo atual** (data de referência padrão = hoje); o saldo é o do fim do dia `initial_balance_date`.
 
 ### `import_profiles`
 - `id`, `name`, `account_id` (FK opcional para vincular direto à conta), `delimiter` (`,` ou `;` ou `\t`), `has_header` (bool), `encoding` (`utf-8-sig` / `latin-1`), `date_column`, `description_column`, `amount_column`, `date_format` (`%Y-%m-%d`, `%d/%m/%Y`, etc.), `decimal_separator` (`.` ou `,`), `expense_sign` (`negative` para extratos de conta onde gasto é `-50,00`; `positive` para faturas de cartão onde compra é `50.00`).
@@ -44,7 +44,11 @@ Uma aplicação financeira **100% local e sem overengineering** para consolidar 
 - Identidade & Origem: `id`, `account_id` (FK), `import_batch_id` (FK)
 - **Campos imutáveis para retro-validação**: `raw_date` (`YYYY-MM-DD`), `raw_description`, `raw_amount_cents` (sinal normalizado de fluxo de caixa na conta: negativo = saída/despesa, positivo = entrada/receita), `raw_csv_row` (JSON da linha original), `dedup_hash`.
 - **Campos de classificação**: `competence_month` (`YYYY-MM`), `display_name`, `category_id` (FK opcional), `kind` (`expense` | `income` | `transfer`), `notes`.
-- **Parcelas (auto-detectadas)**: `installment_current` (int opcional), `installment_total` (int opcional), `installment_group_key` (texto normalizado para projeção sem duplicar parcelas já importadas).
+- **Parcelas (registradas explicitamente)**: `installment_current` (int opcional), `installment_total` (int opcional), `installment_group_key` (texto normalizado para projeção sem duplicar parcelas já importadas). Não são mais inferidas de textos `DD/MM` nos extratos importados; ficam vazias na importação até existir uma fonte explícita (futura importação de operações de cartão).
+
+### `bill_payment_links`
+- `id`, `payment_transaction_id` (FK única para `transactions.id` com `ON DELETE CASCADE`), `card_account_id` (FK para `accounts.id`), `competence_month` (`YYYY-MM`), `created_at`.
+- Conecta um ou mais pagamentos feitos na conta corrente/poupança a uma fatura `(card_account_id, competence_month)` para conferência de valores e controle automático de dupla contagem.
 
 ### `recurring_items`
 - `id`, `name`, `kind` (`income` | `expense`), `expected_amount_cents`, `day_of_month` (1–31), `account_id` (FK opcional), `category_id` (FK opcional), `match_keyword` (para reconciliação automática com lançamentos importados), `active` (bool), `start_month` (`YYYY-MM`, opcional), `end_month` (`YYYY-MM`, opcional).
@@ -56,14 +60,15 @@ Uma aplicação financeira **100% local e sem overengineering** para consolidar 
 ## 4. Regras de Negócio Principais
 
 1. **Deduplicação inteligente**: para cada arquivo importado, conta ocorrências idênticas de `(account_id, raw_date, raw_amount_cents, raw_description)` no mesmo dia e gera um hash com o índice da ocorrência (`#1`, `#2`, ...). Reimportar o mesmo mês ignora as já existentes sem descartar duas compras reais idênticas no mesmo dia. O preview permite inspecionar e forçar importação de qualquer linha marcada como duplicata.
-2. **Transferências / Pagamento de Fatura (`transfer`)**:
+2. **Transferências / Pagamento de Fatura (`transfer`) e Detalhamento de Fatura**:
    - Excluídos de Receitas e Despesas na visão consolidada (e nos orçamentos por categoria).
-   - **Incluídos** no cálculo do saldo real de cada conta corrente/poupança (`initial_balance + soma(raw_amount_cents)` a partir de `initial_balance_date`), porque pagar a fatura de fato reduz o dinheiro disponível na conta corrente.
+   - **Incluídos** no cálculo do saldo real de cada conta corrente/poupança (checkpoint bidirecional por `raw_date`: para o fim de mês `M >= initial_balance_date`, `saldo = initial_balance + soma(raw_amount_cents)` com `initial_balance_date < raw_date <= M`; para `M < initial_balance_date`, retroage invertendo os sinais: `saldo = initial_balance - soma(raw_amount_cents)` com `M < raw_date <= initial_balance_date`), porque pagar a fatura de fato reduz o dinheiro disponível na conta corrente.
+   - **Detalhar / Vincular fatura**: em `/lancamentos`, saídas de conta corrente/poupança marcadas como `Transferência / Fatura` oferecem a ação "Detalhar fatura" para vincular a uma fatura já importada no cartão ou ir para `/importar` pré-preenchido com conferência ao vivo (`Bateu ✓` ou `Diferença de R$ ...`). Desvincular ou desfazer a última importação daquela fatura reverte o pagamento para `expense`.
 3. **Competência vs Data Original**:
    - Conta corrente/poupança: `competence_month = YYYY-MM(raw_date)`.
    - Cartão de crédito: escolhido uma vez no upload da fatura (sugerido automaticamente pelo mês mais recente do CSV), mantendo `raw_date` intacto para auditoria.
 4. **Projeção de Parcelas**:
-   - Qualquer lançamento de cartão com `installment_current < installment_total` (ex.: `02/06` em `2026-11`) gera projeções virtuais (`03/06` em `2026-12`, ..., `06/06` em `2027-03`) no planejamento dos meses futuros — automaticamente suprimidas se a parcela correspondente já tiver sido importada naquele mês.
+   - Apenas lançamentos de **cartão de crédito** com parcelas registradas explicitamente (`installment_current < installment_total`) geram projeções virtuais (ex.: `02/06` em `2026-11` → `03/06` em `2026-12`, ..., `06/06` em `2027-03`) no planejamento dos meses futuros — suprimidas se a parcela correspondente já tiver sido importada naquele mês. Nenhuma parcela é inferida de `DD/MM` no texto da descrição.
 5. **Resumo de Comprometimento Mensal**:
    - **Renda Esperada**: `max(renda_realizada, renda_recorrente_esperada)` ou soma de *Receita Realizada + Receitas Previstas Pendentes*.
    - **Já Gasto (Realizado)**: soma de despesas (`kind = 'expense'`) no mês de competência.
