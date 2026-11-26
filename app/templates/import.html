@@ -1,0 +1,395 @@
+{% extends "base.html" %}
+{% block title %}Importar CSV · Finanças Locais{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Importar CSV</h1>
+    <p class="page-subtitle">Envie extratos bancários ou faturas de cartão. Duplicatas são detectadas automaticamente e os textos originais ficam preservados.</p>
+  </div>
+</div>
+
+{% if link_payment %}
+<div class="alert alert-info">
+  <span>
+    Detalhando fatura do pagamento <strong>{{ link_payment.display_name }}</strong>
+    ({{ link_payment.raw_date | date_br }} · <strong>{{ link_payment.abs_amount_cents | brl }}</strong> · {{ link_payment.bank_name }} · {{ link_payment.account_name }}).
+    Ao confirmar a importação no cartão, este pagamento será vinculado e marcado como <strong>Transferência / Fatura</strong>.
+  </span>
+  <a href="/importar" class="btn btn-sm">Cancelar vínculo</a>
+</div>
+{% endif %}
+
+{% if not accounts %}
+<div class="panel">
+  <div class="empty-state">
+    <h3>Nenhuma conta cadastrada ainda</h3>
+    <p>Antes de importar seu primeiro CSV, cadastre pelo menos um banco e uma conta em Configurações.</p>
+    <a href="/configuracoes?tab=accounts" class="btn btn-primary">Cadastrar bancos e contas</a>
+  </div>
+</div>
+{% else %}
+
+<!-- Step 1: Upload Form -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Enviar arquivo</h2>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/importar/preview" enctype="multipart/form-data" class="form-grid">
+      {% if link_payment %}
+      <input type="hidden" name="link_payment_id" value="{{ link_payment.id }}">
+      {% endif %}
+      <div class="field">
+        <label for="account_id">Conta de destino</label>
+        <select id="account_id" name="account_id" class="select" required>
+          {% for a in accounts %}
+          {% if not link_payment or a.account_type == 'credit_card' %}
+          <option value="{{ a.id }}" {% if selected_account_id == a.id %}selected{% endif %}>
+            {{ a.bank_name }} · {{ a.name }} ({{ ACCOUNT_TYPE_LABELS[a.account_type] }})
+          </option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="profile_id">Perfil de formato</label>
+        <select id="profile_id" name="profile_id" class="select">
+          <option value="auto" {% if not selected_profile_id %}selected{% endif %}>Detectar automaticamente</option>
+          {% for p in profiles %}
+          <option value="{{ p.id }}" {% if selected_profile_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="competence_month">Mês da fatura (cartão)</label>
+        <input id="competence_month" type="month" name="competence_month" value="{{ competence_month or '' }}" class="input">
+        <span class="field-hint">Opcional p/ conta corrente</span>
+      </div>
+
+      <div class="field">
+        <label for="csv_file">Arquivo CSV / TXT / Excel</label>
+        <input id="csv_file" type="file" name="csv_file" accept=".csv,.txt,.xlsx,.xls" class="input" required>
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Pré-visualizar</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+{% if preview_error %}
+<div class="alert alert-error">
+  <span>Erro ao ler o CSV com esse mapeamento: {{ preview_error }}. Ajuste as colunas e o formato abaixo e clique em Atualizar prévia.</span>
+</div>
+{% endif %}
+
+<!-- Step 2: Column Mapping + Preview -->
+{% if stage_token and config %}
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Mapeamento do arquivo: {{ filename }}</h2>
+    {% if preview %}
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <span class="pill pill-income">{{ preview.new_count }} novo(s)</span>
+      <span class="pill pill-warn">{{ preview.duplicate_count }} duplicata(s)</span>
+      {% if preview.errors %}
+      <span class="pill pill-expense">{{ preview.errors | length }} erro(s)</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/importar/preview" class="form-grid" style="margin-bottom: 16px;">
+      <input type="hidden" name="stage_token" value="{{ stage_token }}">
+      <input type="hidden" name="account_id" value="{{ selected_account_id }}">
+      <input type="hidden" name="custom_mapping" value="1">
+      {% if link_payment %}
+      <input type="hidden" name="link_payment_id" value="{{ link_payment.id }}">
+      {% endif %}
+
+      {% if inspection and inspection.file_format in ('xlsx', 'xls') %}
+      <input type="hidden" name="delimiter" value="{{ config.delimiter }}">
+      {% if inspection.sheet_names | length > 1 %}
+      <div class="field">
+        <label>Planilha (aba)</label>
+        <select name="sheet_name" class="select select-sm">
+          {% for sn in inspection.sheet_names %}
+          <option value="{{ sn }}" {% if config.sheet_name == sn %}selected{% endif %}>{{ sn }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <input type="hidden" name="sheet_name" value="{{ config.sheet_name or '' }}">
+      {% endif %}
+      {% else %}
+      <input type="hidden" name="sheet_name" value="">
+      <div class="field">
+        <label>Delimitador</label>
+        <select name="delimiter" class="select select-sm">
+          <option value="," {% if config.delimiter == ',' %}selected{% endif %}>Vírgula (,)</option>
+          <option value=";" {% if config.delimiter == ';' %}selected{% endif %}>Ponto e vírgula (;)</option>
+          <option value="\t" {% if config.delimiter == '\t' %}selected{% endif %}>Tab (TAB)</option>
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="field">
+        <label>Coluna Data</label>
+        <input type="text" name="date_column" value="{{ config.date_column }}" class="input input-sm" required>
+      </div>
+
+      <div class="field">
+        <label>Coluna Descrição</label>
+        <input type="text" name="description_column" value="{{ config.description_column }}" class="input input-sm" required>
+      </div>
+
+      <div class="field">
+        <label>Coluna Valor</label>
+        <input type="text" name="amount_column" value="{{ config.amount_column }}" class="input input-sm" required>
+      </div>
+
+      <div class="field">
+        <label>Formato da data</label>
+        <select name="date_format" class="select select-sm">
+          <option value="%Y-%m-%d" {% if config.date_format == '%Y-%m-%d' %}selected{% endif %}>YYYY-MM-DD</option>
+          <option value="%d/%m/%Y" {% if config.date_format == '%d/%m/%Y' %}selected{% endif %}>DD/MM/YYYY</option>
+          <option value="%d/%m/%y" {% if config.date_format == '%d/%m/%y' %}selected{% endif %}>DD/MM/YY</option>
+          <option value="%Y/%m/%d" {% if config.date_format == '%Y/%m/%d' %}selected{% endif %}>YYYY/MM/DD</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Separador decimal</label>
+        <select name="decimal_separator" class="select select-sm">
+          <option value="." {% if config.decimal_separator == '.' %}selected{% endif %}>Ponto (123.45)</option>
+          <option value="," {% if config.decimal_separator == ',' %}selected{% endif %}>Vírgula (123,45)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Sinal das despesas</label>
+        <select name="expense_sign" class="select select-sm">
+          <option value="negative" {% if config.expense_sign == 'negative' %}selected{% endif %}>Negativo (-50,00 = gasto)</option>
+          <option value="positive" {% if config.expense_sign == 'positive' %}selected{% endif %}>Positivo (+50.00 = gasto, ex. cartão)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Competência (cartão)</label>
+        <input type="month" name="competence_month" value="{{ competence_month or '' }}" class="input input-sm">
+      </div>
+
+      <div class="field">
+        <label>Pular linhas topo</label>
+        <input type="number" name="skip_rows" value="{{ config.skip_rows or 0 }}" min="0" max="100" class="input input-sm">
+      </div>
+
+      <div class="field" style="justify-content: center;">
+        <label class="checkbox-label" style="margin-top: 16px;">
+          <input type="checkbox" name="has_header" value="1" {% if config.has_header %}checked{% endif %}>
+          Tem cabeçalho
+        </label>
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-sm" style="width: 100%;">Atualizar prévia</button>
+      </div>
+    </form>
+
+    {% if inspection and inspection.columns %}
+    <div style="font-size: 12px; color: var(--ink-muted); margin-bottom: 14px;">
+      Colunas detectadas:
+      {% for col in inspection.columns %}
+      <code style="background: var(--surface-subtle); padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; margin-right: 4px;">{{ col }}</code>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if preview and preview.errors %}
+    <div class="alert alert-error" style="flex-direction: column; align-items: flex-start;">
+      <strong>Avisos de leitura ({{ preview.errors | length }}):</strong>
+      <ul style="margin: 4px 0 0 18px; padding: 0;">
+        {% for err in preview.errors[:8] %}
+        <li>{{ err }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if preview and preview.rows %}
+    {% if preview_reconciliation %}
+    <div class="bill-recon-box" style="margin-bottom: 14px;">
+      <span>
+        <strong>Conferência da fatura:</strong>
+        Valor pago {{ preview_reconciliation.projected_paid_cents | brl }} ·
+        Novos na prévia {{ preview_reconciliation.preview_new_net_cents | brl }} ({{ preview_reconciliation.preview_new_count }} item(ns))
+        {% if preview_reconciliation.existing_item_count > 0 %}
+        · Já importados no mês {{ preview_reconciliation.existing_bill_cents | brl }}
+        {% endif %}
+        · Total da fatura <strong>{{ preview_reconciliation.projected_bill_cents | brl }}</strong>
+      </span>
+      {% if preview_reconciliation.status == 'matched' %}
+      <span class="pill pill-income">Bateu ✓</span>
+      {% else %}
+      <span class="pill pill-warn">Diferença {{ preview_reconciliation.abs_diff_cents | brl }}</span>
+      <span class="text-muted" style="font-size: 12px;">Você pode confirmar mesmo com diferença.</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/importar/commit" id="commit-import-form">
+      {% if link_payment %}
+      <input type="hidden" name="link_payment_id" value="{{ link_payment.id }}">
+      {% endif %}
+      <input type="hidden" name="selected_rows_csv" id="selected_rows_csv" value="{{ preview.rows | rejectattr('is_duplicate') | map(attribute='row_index') | join(',') }}">
+      <input type="hidden" name="stage_token" value="{{ stage_token }}">
+      <input type="hidden" name="account_id" value="{{ selected_account_id }}">
+      <input type="hidden" name="profile_id" value="{{ selected_profile_id or '' }}">
+      <input type="hidden" name="competence_month" value="{{ preview.suggested_competence_month }}">
+      <input type="hidden" name="delimiter" value="{{ config.delimiter }}">
+      {% if config.has_header %}<input type="hidden" name="has_header" value="1">{% endif %}
+      <input type="hidden" name="encoding" value="{{ config.encoding }}">
+      <input type="hidden" name="date_column" value="{{ config.date_column }}">
+      <input type="hidden" name="description_column" value="{{ config.description_column }}">
+      <input type="hidden" name="amount_column" value="{{ config.amount_column }}">
+      <input type="hidden" name="date_format" value="{{ config.date_format }}">
+      <input type="hidden" name="decimal_separator" value="{{ config.decimal_separator }}">
+      <input type="hidden" name="expense_sign" value="{{ config.expense_sign }}">
+      <input type="hidden" name="skip_rows" value="{{ config.skip_rows or 0 }}">
+      <input type="hidden" name="sheet_name" value="{{ config.sheet_name or '' }}">
+      <div class="table-wrap" style="border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 440px; overflow-y: auto; margin-bottom: 14px;">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th style="width: 36px;">Imp.</th>
+              <th>Status</th>
+              <th>Data</th>
+              <th>Comp.</th>
+              <th>Descrição (limpa / original)</th>
+              <th>Categoria / Tipo</th>
+              <th class="text-right">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in preview.rows %}
+            <tr class="{% if r.is_duplicate %}row-dup{% endif %}">
+              <td>
+                <input type="checkbox" class="js-row-select" value="{{ r.row_index }}" {% if not r.is_duplicate %}checked{% endif %}>
+              </td>
+              <td>
+                {% if r.is_duplicate %}
+                <span class="pill pill-warn">Duplicata</span>
+                {% else %}
+                <span class="pill pill-income">Novo</span>
+                {% endif %}
+              </td>
+              <td class="num text-muted">{{ r.raw_date | date_br }}</td>
+              <td class="num text-muted">{{ r.competence_month | month_short }}</td>
+              <td>
+                <span class="tx-name">{{ r.display_name }}</span>
+                {% if r.installment_total %}
+                <span class="pill" style="margin-left: 5px;">{{ "%02d/%02d" | format(r.installment_current, r.installment_total) }}</span>
+                {% endif %}
+                {% if r.matched_rule %}
+                <span class="pill pill-accent" style="margin-left: 5px;">Regra</span>
+                {% endif %}
+                {% if r.display_name != r.raw_description %}
+                <span class="tx-raw">{{ r.raw_description }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.kind == 'transfer' %}
+                <span class="pill pill-transfer">Transferência / Fatura</span>
+                {% elif r.category_name %}
+                <span class="pill"><span class="pill-dot" style="background: {{ r.category_color }}"></span>{{ r.category_name }}</span>
+                {% else %}
+                <span class="text-muted">{{ KIND_LABELS[r.kind] }}</span>
+                {% endif %}
+              </td>
+              <td class="text-right num {% if r.kind == 'income' %}text-income{% elif r.kind == 'expense' %}text-expense{% else %}text-muted{% endif %}">
+                {{ r.raw_amount_cents | brl_signed }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <input type="text" name="save_profile_name" class="input input-sm" placeholder="Salvar mapeamento como perfil (opcional)" style="width: 290px;">
+        </div>
+        <button type="submit" class="btn btn-primary">Confirmar importação dos selecionados</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+<!-- Import History with 1-Click Undo -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Histórico de importações</h2>
+  </div>
+  {% if batches %}
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Importado em</th>
+          <th>Arquivo</th>
+          <th>Conta</th>
+          <th>Competência</th>
+          <th class="text-right">Linhas</th>
+          <th class="text-right">Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in batches %}
+        <tr>
+          <td class="num text-muted">{{ b.imported_at[:16].replace("T", " ") }}</td>
+          <td><strong>{{ b.filename }}</strong></td>
+          <td>{{ b.bank_name }} · {{ b.account_name }}</td>
+          <td class="text-muted">{{ b.competence_month | month_short if b.competence_month else "Por data" }}</td>
+          <td class="text-right num">{{ b.row_count }}</td>
+          <td class="text-right">
+            <form method="post" action="/importar/batches/{{ b.id }}/delete" onsubmit="return confirm('Desfazer esta importação e remover seus {{ b.row_count }} lançamentos?');">
+              <button type="submit" class="btn btn-danger btn-sm">Desfazer</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>Nenhuma importação realizada</h3>
+    <p>Quando você importar um CSV, o histórico aparece aqui com opção de desfazer em 1 clique.</p>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.getElementById("commit-import-form");
+  const hidden = document.getElementById("selected_rows_csv");
+  if (!form || !hidden) return;
+  form.addEventListener("submit", function () {
+    const checked = [];
+    form.querySelectorAll(".js-row-select:checked").forEach(function (cb) {
+      checked.push(cb.value);
+    });
+    hidden.value = checked.join(",");
+  });
+});
+</script>
+{% endblock %}

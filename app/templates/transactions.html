@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Lançamentos · Finanças Locais{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Lançamentos</h1>
+    <p class="page-subtitle">Clique em Editar para renomear, categorizar e criar regras automáticas mantendo o texto original do banco.</p>
+  </div>
+  <div class="toolbar">
+    <a href="/importar" class="btn btn-primary">Importar CSV</a>
+  </div>
+</div>
+
+<form method="get" action="/lancamentos" class="filter-bar">
+  <select name="month" class="select" onchange="this.form.submit()" aria-label="Mês">
+    <option value="all" {% if selected_month == 'all' %}selected{% endif %}>Todos os meses</option>
+    {% for m in months %}
+    <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ m | month_label }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="bank_id" class="select" onchange="this.form.account_id.value=''; this.form.submit()" aria-label="Banco">
+    <option value="">Todos os bancos</option>
+    {% for b in banks %}
+    <option value="{{ b.id }}" {% if selected_bank_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="account_id" class="select" onchange="this.form.submit()" aria-label="Conta">
+    <option value="">Todas as contas</option>
+    {% for a in accounts %}
+    {% if not selected_bank_id or a.bank_id == selected_bank_id %}
+    <option value="{{ a.id }}" {% if selected_account_id == a.id %}selected{% endif %}>{{ a.bank_name }} · {{ a.name }}</option>
+    {% endif %}
+    {% endfor %}
+  </select>
+
+  <select name="category_id" class="select" onchange="this.form.submit()" aria-label="Categoria">
+    <option value="">Todas as categorias</option>
+    <option value="none" {% if selected_category_id == 'none' %}selected{% endif %}>Sem categoria</option>
+    {% for c in categories %}
+    <option value="{{ c.id }}" {% if selected_category_id == (c.id | string) %}selected{% endif %}>{{ c.name }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="kind" class="select" onchange="this.form.submit()" aria-label="Tipo">
+    <option value="">Todos os tipos</option>
+    <option value="expense" {% if selected_kind == 'expense' %}selected{% endif %}>Despesas</option>
+    <option value="income" {% if selected_kind == 'income' %}selected{% endif %}>Receitas</option>
+    <option value="transfer" {% if selected_kind == 'transfer' %}selected{% endif %}>Transferências / Faturas</option>
+  </select>
+
+  <input type="search" name="q" value="{{ q }}" class="input" placeholder="Buscar nome ou texto do banco..." style="flex: 1; min-width: 210px;">
+
+  <label class="checkbox-label">
+    <input type="checkbox" name="show_raw" value="1" {% if show_raw %}checked{% endif %} onchange="this.form.submit()">
+    Modo retro-validação
+  </label>
+
+  <button type="submit" class="btn">Filtrar</button>
+</form>
+
+{% if bill_reconciliation and bill_reconciliation.payment_count > 0 %}
+<div class="bill-recon-box" style="margin-bottom: 16px;">
+  <span><strong>{{ bill_reconciliation.card_bank_name }} · {{ bill_reconciliation.card_account_name }}</strong> · {{ bill_reconciliation.competence_month | month_label }} ·
+    {{ bill_reconciliation.item_count }} item(ns) · fatura {{ bill_reconciliation.bill_cents | brl }} ·
+    pago {{ bill_reconciliation.paid_cents | brl }} ({{ bill_reconciliation.payment_count }} pagamento(s))</span>
+  {% if bill_reconciliation.status == 'matched' %}
+  <span class="pill pill-income">Bateu ✓</span>
+  {% elif bill_reconciliation.status == 'diff' %}
+  <span class="pill pill-warn">Diferença de {{ bill_reconciliation.abs_diff_cents | brl }}</span>
+  {% else %}
+  <span class="pill pill-warn">Sem itens</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<section class="kpi-strip" style="margin-bottom: 16px;">
+  <div class="kpi-cell">
+    <div class="kpi-label">Lançamentos filtrados</div>
+    <div class="kpi-value">{{ totals.count }}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Receitas</div>
+    <div class="kpi-value text-income">{{ totals.income_cents | brl }}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Despesas</div>
+    <div class="kpi-value text-expense">{{ totals.expense_cents | brl }}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Transferências / Faturas</div>
+    <div class="kpi-value text-muted">{{ totals.transfer_cents | brl }}</div>
+  </div>
+</section>
+
+<section class="panel">
+  {% if transactions %}
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Descrição</th>
+          <th>Conta</th>
+          <th>Categoria / Tipo</th>
+          <th class="text-right">Valor</th>
+          <th class="text-right">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in transactions %}
+        {% include "partials/tx_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>Nenhum lançamento encontrado</h3>
+    <p>Ajuste os filtros acima ou importe um arquivo CSV do seu banco.</p>
+    <a href="/importar" class="btn btn-primary btn-sm">Importar CSV</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

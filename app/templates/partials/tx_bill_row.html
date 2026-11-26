@@ -1,0 +1,121 @@
+<tr id="tx-row-{{ tx.id }}" class="row-editing">
+  <td colspan="6">
+    <div class="inline-edit-box">
+      <div style="font-size: 13px;">
+        <strong>Detalhar fatura</strong> ·
+        <span class="tx-name">{{ tx.display_name }}</span>
+        <span class="text-muted">({{ tx.raw_date | date_br }} · {{ (tx.raw_amount_cents | abs) | brl }} · {{ tx.bank_name }} · {{ tx.account_name }})</span>
+      </div>
+
+      {% if error %}
+      <div class="alert alert-error" style="margin-bottom: 0;"><span>{{ error }}</span></div>
+      {% endif %}
+
+      {% if tx.bill_link %}
+      <div class="bill-recon-box">
+        <span>Vinculado a <strong>{{ tx.bill_link.card_bank_name }} · {{ tx.bill_link.card_account_name }}</strong> · {{ tx.bill_link.competence_month | month_short }} · {{ tx.bill_link.item_count }} item(ns) · fatura {{ tx.bill_link.bill_cents | brl }} · pago {{ tx.bill_link.paid_cents | brl }}</span>
+        {% if tx.bill_link.status == 'matched' %}
+        <span class="pill pill-income">Bateu ✓</span>
+        {% elif tx.bill_link.status == 'diff' %}
+        <span class="pill pill-warn">Diferença {{ tx.bill_link.abs_diff_cents | brl }}</span>
+        {% else %}
+        <span class="pill pill-warn">Sem itens</span>
+        {% endif %}
+        <a class="btn btn-sm" href="/lancamentos?month={{ tx.bill_link.competence_month }}&account_id={{ tx.bill_link.card_account_id }}">Ver itens da fatura</a>
+        <button
+          type="button"
+          class="btn btn-danger btn-sm"
+          hx-post="/lancamentos/{{ tx.id }}/desvincular-fatura"
+          hx-vals='{"show_raw": "{{ 1 if show_raw else 0 }}"}'
+          hx-target="#tx-row-{{ tx.id }}"
+          hx-swap="outerHTML"
+          hx-confirm="Desvincular esta fatura e voltar o pagamento para Despesa?"
+        >Desvincular fatura</button>
+      </div>
+      {% endif %}
+
+      {% if not card_accounts %}
+      <div class="bill-recon-box" style="flex-direction: column; align-items: stretch;">
+        <span>Você ainda não tem nenhuma conta de cartão de crédito. Crie uma para detalhar esta fatura:</span>
+        <form
+          class="inline-edit-row"
+          hx-post="/lancamentos/{{ tx.id }}/criar-cartao"
+          hx-target="#tx-row-{{ tx.id }}"
+          hx-swap="outerHTML"
+        >
+          <input type="hidden" name="show_raw" value="{{ 1 if show_raw else 0 }}">
+          <div class="field">
+            <label>Banco</label>
+            <select name="bank_id" class="select select-sm">
+              {% for b in banks %}
+              <option value="{{ b.id }}" {% if b.id == tx.bank_id %}selected{% endif %}>{{ b.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Nome do cartão</label>
+            <input type="text" name="name" value="Cartão de Crédito" class="input input-sm" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Criar cartão</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="bill-recon-box" style="flex-direction: column; align-items: stretch;">
+        <strong style="font-size: 12.5px;">Subir o arquivo da fatura</strong>
+        <form method="get" action="/importar" class="inline-edit-row">
+          <input type="hidden" name="link_payment_id" value="{{ tx.id }}">
+          <div class="field">
+            <label>Cartão</label>
+            <select name="account_id" class="select select-sm">
+              {% for c in card_accounts %}
+              <option value="{{ c.id }}" {% if c.id == default_card_id %}selected{% endif %}>{{ c.bank_name }} · {{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field" style="width: 125px;">
+            <label>Mês da fatura</label>
+            <input type="month" name="competence_month" value="{{ default_month }}" class="input input-sm" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Subir CSV / Excel da fatura</button>
+        </form>
+      </div>
+
+      {% if existing_bills %}
+      <div class="bill-recon-box" style="flex-direction: column; align-items: stretch;">
+        <strong style="font-size: 12.5px;">Ou vincular a uma fatura já importada</strong>
+        <div class="bill-candidate-list">
+          {% for b in existing_bills %}
+          <div class="bill-candidate">
+            <span>{{ b.card_bank_name }} · {{ b.card_account_name }} · {{ b.competence_month | month_short }} · {{ b.item_count }} item(ns) · {{ b.bill_cents | brl }}</span>
+            {% if b.diff_with_tx_cents == 0 %}
+            <span class="pill pill-income">Bateu ✓</span>
+            {% else %}
+            <span class="pill pill-warn">Diferença {{ b.abs_diff_with_tx_cents | brl }}</span>
+            {% endif %}
+            <button
+              type="button"
+              class="btn btn-sm"
+              hx-post="/lancamentos/{{ tx.id }}/vincular-fatura"
+              hx-vals='{"card_account_id": "{{ b.card_account_id }}", "competence_month": "{{ b.competence_month }}", "show_raw": "{{ 1 if show_raw else 0 }}"}'
+              hx-target="#tx-row-{{ tx.id }}"
+              hx-swap="outerHTML"
+            >Vincular</button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% endif %}
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button
+          type="button"
+          class="btn btn-sm"
+          hx-get="/lancamentos/{{ tx.id }}/row?show_raw={{ 1 if show_raw else 0 }}"
+          hx-target="#tx-row-{{ tx.id }}"
+          hx-swap="outerHTML"
+        >Fechar</button>
+      </div>
+    </div>
+  </td>
+</tr>

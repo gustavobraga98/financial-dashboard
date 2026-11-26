@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+{% block title %}Visão Geral · Finanças Locais{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Visão Geral</h1>
+    <p class="page-subtitle">{{ summary.month_label }} · {{ scope_label }}</p>
+  </div>
+
+  <form method="get" action="/" class="toolbar">
+    <div class="month-nav">
+      <a href="/?month={{ summary.prev_month }}{% if selected_bank_id %}&bank_id={{ selected_bank_id }}{% endif %}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}" title="Mês anterior" aria-label="Mês anterior">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </a>
+      <select name="month" onchange="this.form.submit()" aria-label="Selecionar mês">
+        {% for m in months %}
+        <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>{{ m | month_label }}</option>
+        {% endfor %}
+      </select>
+      <a href="/?month={{ summary.next_month }}{% if selected_bank_id %}&bank_id={{ selected_bank_id }}{% endif %}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}" title="Próximo mês" aria-label="Próximo mês">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </a>
+    </div>
+
+    <select name="bank_id" class="select" onchange="this.form.account_id.value=''; this.form.submit()" aria-label="Filtrar por banco">
+      <option value="">Todos os bancos</option>
+      {% for b in banks %}
+      <option value="{{ b.id }}" {% if selected_bank_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="account_id" class="select" onchange="this.form.submit()" aria-label="Filtrar por conta">
+      <option value="">Todas as contas</option>
+      {% for a in accounts %}
+      {% if not selected_bank_id or a.bank_id == selected_bank_id %}
+      <option value="{{ a.id }}" {% if selected_account_id == a.id %}selected{% endif %}>{{ a.bank_name }} · {{ a.name }}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+
+    <a href="/importar" class="btn btn-primary">Importar CSV</a>
+  </form>
+</div>
+
+{% if not accounts %}
+<div class="panel">
+  <div class="empty-state">
+    <h3>Configure seu primeiro banco e conta</h3>
+    <p>Cadastre seus bancos (ex.: Itaú, Nubank) e contas correntes ou cartões de crédito para começar a importar extratos CSV.</p>
+    <a href="/configuracoes?tab=accounts" class="btn btn-primary">Cadastrar bancos e contas</a>
+  </div>
+</div>
+{% else %}
+
+<!-- KPI Strip -->
+<section class="kpi-strip" aria-label="Resumo financeiro do mês">
+  <div class="kpi-cell">
+    <div class="kpi-label">Receitas no mês</div>
+    <div class="kpi-value text-income">{{ summary.income_cents | brl }}</div>
+    <div class="kpi-sub">Esperado: {{ summary.planning.expected_income_cents | brl }}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Despesas no mês</div>
+    <div class="kpi-value text-expense">{{ summary.expense_cents | brl }}</div>
+    <div class="kpi-sub">{{ summary.tx_count }} lançamento(s){% if summary.transfer_cents %} · {{ summary.transfer_cents | brl }} transf.{% endif %}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Resultado do mês</div>
+    <div class="kpi-value {% if summary.net_cents >= 0 %}text-income{% else %}text-expense{% endif %}">
+      {{ summary.net_cents | brl_signed }}
+    </div>
+    <div class="kpi-sub">Receitas menos despesas</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Disponível no planejamento</div>
+    <div class="kpi-value {% if summary.planning.available_cents >= 0 %}text-income{% else %}text-expense{% endif %}">
+      {{ summary.planning.available_cents | brl }}
+    </div>
+    <div class="kpi-sub">{{ summary.planning.committed_pct }}% da renda comprometida</div>
+  </div>
+</section>
+
+<!-- Monthly Commitment Bar -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Comprometimento de {{ summary.month_label }}</h2>
+    <a href="/planejamento?month={{ selected_month }}" class="btn btn-sm">Abrir planejamento completo</a>
+  </div>
+  <div class="panel-body">
+    {% set p = summary.planning %}
+    {% set actual_w = [p.actual_pct, 100] | min %}
+    {% set rem_w = [100 - actual_w, 0] | max %}
+    {% set pending_w = [p.pending_pct, rem_w] | min %}
+    <div class="commit-bar-track" role="img" aria-label="Comprometimento mensal: {{ p.committed_pct }}%">
+      <div class="commit-bar-actual {% if p.committed_pct > 100 %}commit-bar-over{% endif %}" style="width: {{ actual_w }}%"></div>
+      <div class="commit-bar-pending" style="width: {{ pending_w }}%"></div>
+    </div>
+    <div class="commit-legend">
+      <span><span class="legend-dot" style="background: var(--ink)"></span>Já gasto: <strong class="num">{{ p.actual_expense_cents | brl }}</strong></span>
+      <span><span class="legend-dot" style="background: #d99b26"></span>Contas fixas pendentes: <strong class="num">{{ p.pending_recurring_expense_cents | brl }}</strong></span>
+      <span><span class="legend-dot" style="background: #64748b"></span>Parcelas projetadas: <strong class="num">{{ p.projected_installments_cents | brl }}</strong></span>
+      <span>Total comprometido: <strong class="num">{{ p.total_committed_cents | brl }}</strong> de <strong class="num">{{ p.expected_income_cents | brl }}</strong></span>
+    </div>
+  </div>
+</section>
+
+<!-- Category Spending + Category Budgets -->
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Despesas por categoria</h2>
+      <a href="/lancamentos?month={{ selected_month }}&kind=expense" class="btn btn-ghost btn-sm">Ver lançamentos</a>
+    </div>
+    <div class="panel-body">
+      {% if summary.category_breakdown %}
+      <div class="chart-box">
+        <canvas id="categoryChart"></canvas>
+      </div>
+      <div class="table-wrap" style="margin-top: 14px;">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th>Categoria</th>
+              <th class="text-right">Qtd.</th>
+              <th class="text-right">Total</th>
+              <th class="text-right">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cat in summary.category_breakdown %}
+            <tr>
+              <td>
+                <a href="/lancamentos?month={{ selected_month }}&category_id={{ cat.category_id if cat.category_id else 'none' }}&kind=expense" style="color: var(--ink);">
+                  <span class="legend-dot" style="background: {{ cat.color }}"></span>{{ cat.name }}
+                </a>
+              </td>
+              <td class="text-right num text-muted">{{ cat.tx_count }}</td>
+              <td class="text-right num">{{ cat.spent_cents | brl }}</td>
+              <td class="text-right num text-muted">{{ cat.share_pct }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <h3>Sem despesas neste mês</h3>
+        <p>Importe um extrato CSV para visualizar a distribuição por categoria.</p>
+        <a href="/importar" class="btn btn-sm">Importar CSV</a>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Orçamentos mensais</h2>
+      <a href="/configuracoes?tab=categories" class="btn btn-ghost btn-sm">Definir limites</a>
+    </div>
+    <div class="panel-body">
+      {% if summary.budgets %}
+      <div class="budget-list">
+        {% for b in summary.budgets %}
+        <div>
+          <div class="budget-row-top">
+            <span>
+              <span class="legend-dot" style="background: {{ b.color }}"></span>
+              <strong>{{ b.name }}</strong>
+            </span>
+            <span class="num">
+              <strong class="{% if b.status == 'over' %}text-expense{% elif b.status == 'warn' %}text-warn{% endif %}">{{ b.spent_cents | brl }}</strong>
+              <span class="text-muted">/ {{ b.budget_cents | brl }} ({{ b.pct }}%)</span>
+            </span>
+          </div>
+          <div class="budget-track">
+            <div class="budget-fill {{ b.status }}" style="width: {{ b.bar_pct }}%"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <h3>Nenhum teto mensal definido</h3>
+        <p>Configure limites mensais nas suas categorias (ex.: Alimentação, Lazer) para acompanhar barras de progresso aqui.</p>
+        <a href="/configuracoes?tab=categories" class="btn btn-sm">Configurar orçamentos</a>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<!-- Accounts Balances & Bank Breakdown -->
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Saldos das contas e faturas</h2>
+      <span class="num text-muted">Caixa total: <strong style="color: var(--ink);">{{ summary.total_cash_cents | brl }}</strong></span>
+    </div>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Conta</th>
+            <th>Tipo</th>
+            <th class="text-right">Saldo / Fatura</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in summary.accounts %}
+          <tr>
+            <td>
+              <a href="/?month={{ selected_month }}&account_id={{ acc.id }}" style="color: var(--ink); font-weight: 500;">
+                <span class="legend-dot" style="background: {{ acc.bank_color }}"></span>{{ acc.bank_name }} · {{ acc.name }}
+              </a>
+            </td>
+            <td class="text-muted">{{ ACCOUNT_TYPE_LABELS[acc.account_type] }}</td>
+            <td class="text-right num">
+              {% if acc.account_type == 'credit_card' %}
+              <span class="text-expense">{{ acc.bill_cents | brl }}</span>
+              <div style="font-size: 12px;" class="text-muted">fatura do mês</div>
+              {% else %}
+              <strong class="{% if acc.balance_cents >= 0 %}text-income{% else %}text-expense{% endif %}">{{ acc.balance_cents | brl }}</strong>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Visão por banco</h2>
+      {% if selected_bank_id or selected_account_id %}
+      <a href="/?month={{ selected_month }}" class="btn btn-ghost btn-sm">Ver todos os bancos</a>
+      {% endif %}
+    </div>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Banco</th>
+            <th class="text-right">Receitas</th>
+            <th class="text-right">Despesas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for bk in summary.bank_summary %}
+          <tr>
+            <td>
+              <a href="/?month={{ selected_month }}&bank_id={{ bk.id }}" style="color: var(--ink); font-weight: 500;">
+                <span class="legend-dot" style="background: {{ bk.color }}"></span>{{ bk.name }}
+              </a>
+            </td>
+            <td class="text-right num text-income">{{ bk.income_cents | brl }}</td>
+            <td class="text-right num text-expense">{{ bk.expense_cents | brl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- Recent Transactions -->
+<section class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Lançamentos recentes de {{ summary.month_label }}</h2>
+    <a href="/lancamentos?month={{ selected_month }}{% if selected_bank_id %}&bank_id={{ selected_bank_id }}{% endif %}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}" class="btn btn-sm">Ver todos e renomear</a>
+  </div>
+  {% if summary.recent_txs %}
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Descrição</th>
+          <th>Conta</th>
+          <th>Categoria</th>
+          <th class="text-right">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in summary.recent_txs %}
+        <tr>
+          <td class="num text-muted">{{ tx.raw_date | date_br }}</td>
+          <td>
+            <span class="tx-name">{{ tx.display_name }}</span>
+            {% if tx.installment_total %}
+            <span class="pill" style="margin-left: 6px;">{{ "%02d/%02d" | format(tx.installment_current, tx.installment_total) }}</span>
+            {% endif %}
+            {% if tx.display_name != tx.raw_description %}
+            <span class="tx-raw">Banco: {{ tx.raw_description }}</span>
+            {% endif %}
+          </td>
+          <td class="text-muted">{{ tx.bank_name }} · {{ tx.account_name }}</td>
+          <td>
+            {% if tx.kind == 'transfer' %}
+            <span class="pill pill-transfer">Transferência / Fatura</span>
+            {% elif tx.category_name %}
+            <span class="pill"><span class="pill-dot" style="background: {{ tx.category_color }}"></span>{{ tx.category_name }}</span>
+            {% else %}
+            <span class="text-muted">Sem categoria</span>
+            {% endif %}
+          </td>
+          <td class="text-right num {% if tx.kind == 'income' %}text-income{% elif tx.kind == 'expense' %}text-expense{% else %}text-muted{% endif %}">
+            {{ tx.raw_amount_cents | brl_signed }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3>Nenhum lançamento em {{ summary.month_label }}</h3>
+    <p>Importe um CSV de conta corrente ou fatura de cartão para popular este mês.</p>
+    <a href="/importar" class="btn btn-primary btn-sm">Importar CSV</a>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const el = document.getElementById("categoryChart");
+  if (!el || typeof Chart === "undefined") return;
+  const data = {{ chart_categories_json | safe }};
+  if (!data.labels.length) return;
+  new Chart(el, {
+    type: "bar",
+    data: {
+      labels: data.labels,
+      datasets: [{
+        data: data.values,
+        backgroundColor: data.colors,
+        borderRadius: 4,
+        barThickness: 18,
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => " R$ " + Number(ctx.raw).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: "#e3eae7" },
+          ticks: {
+            callback: (v) => "R$ " + Number(v).toLocaleString("pt-BR")
+          }
+        },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

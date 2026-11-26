@@ -1,0 +1,90 @@
+<tr id="tx-row-{{ tx.id }}" class="row-editing">
+  <td colspan="6">
+    <form
+      hx-post="/lancamentos/{{ tx.id }}"
+      hx-target="#tx-row-{{ tx.id }}"
+      hx-swap="outerHTML"
+      class="inline-edit-box"
+    >
+      <input type="hidden" name="show_raw" value="{{ 1 if show_raw else 0 }}">
+
+      <div style="font-size: 12px; color: var(--ink-muted);">
+        Original do extrato ({{ tx.raw_date | date_br }} · {{ tx.raw_amount_cents | brl_signed }}):
+        <code style="font-family: var(--font-mono); color: var(--ink);">{{ tx.raw_description }}</code>
+      </div>
+
+      <div class="inline-edit-row">
+        <div class="field" style="flex: 2; min-width: 220px;">
+          <label>Nome limpo</label>
+          <input type="text" name="display_name" value="{{ tx.display_name }}" class="input input-sm" required autofocus>
+        </div>
+
+        <div class="field" style="flex: 1; min-width: 150px;">
+          <label>Categoria</label>
+          <select name="category_id" class="select select-sm">
+            <option value="">Sem categoria</option>
+            {% for c in categories %}
+            <option value="{{ c.id }}" {% if tx.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field" style="min-width: 165px;">
+          <label>Tipo</label>
+          <select name="kind" class="select select-sm">
+            <option value="expense" {% if tx.kind == 'expense' %}selected{% endif %}>Despesa</option>
+            <option value="income" {% if tx.kind == 'income' %}selected{% endif %}>Receita</option>
+            <option value="transfer" {% if tx.kind == 'transfer' %}selected{% endif %}>Transferência / Fatura</option>
+          </select>
+        </div>
+
+        <div class="field" style="width: 125px;">
+          <label>Competência</label>
+          <input type="month" name="competence_month" value="{{ tx.competence_month }}" class="input input-sm" required>
+        </div>
+
+        <div class="field" style="flex: 1; min-width: 150px;">
+          <label>Nota (opcional)</label>
+          <input type="text" name="notes" value="{{ tx.notes }}" class="input input-sm" placeholder="Obs. interna">
+        </div>
+      </div>
+
+      <div class="rule-box">
+        <label class="checkbox-label" style="font-weight: 600; color: var(--ink);">
+          <input type="checkbox" name="save_rule" value="1" checked>
+          Salvar como regra para futuras entradas
+        </label>
+
+        <select name="rule_match_type" class="select select-sm" aria-label="Tipo de correspondência">
+          <option value="contains">Contém</option>
+          <option value="exact">Exato (sem parcela)</option>
+        </select>
+
+        <input
+          type="text"
+          name="rule_pattern"
+          value="{{ suggested_pattern }}"
+          class="input input-sm"
+          style="min-width: 210px; flex: 1;"
+          placeholder="Texto original do banco para casar"
+        >
+
+        <label class="checkbox-label">
+          <input type="checkbox" name="apply_existing" value="1" checked>
+          Aplicar aos já importados
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button
+          type="button"
+          class="btn btn-sm"
+          hx-get="/lancamentos/{{ tx.id }}/row?show_raw={{ 1 if show_raw else 0 }}"
+          hx-target="#tx-row-{{ tx.id }}"
+          hx-swap="outerHTML"
+        >Cancelar</button>
+        <button type="submit" class="btn btn-primary btn-sm">Salvar alterações</button>
+      </div>
+    </form>
+  </td>
+</tr>
