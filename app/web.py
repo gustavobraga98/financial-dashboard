@@ -7,6 +7,7 @@ from typing import Any
 from fastapi.templating import Jinja2Templates
 
 from app.formatting import (
+    current_month,
     format_brl,
     format_brl_input,
     format_date_br,
@@ -82,10 +83,4 @@ def load_common_data(conn: sqlite3.Connection) -> dict[str, Any]:
 def resolve_default_month(conn: sqlite3.Connection, month: str | None) -> str:
     if month and len(month) == 7 and "-" in month:
         return month
-    row = conn.execute(
-        "SELECT MAX(competence_month) AS latest FROM transactions"
-    ).fetchone()
-    if row and row["latest"]:
-        return str(row["latest"])
-    months = list_available_months(conn)
-    return months[0]
+    return current_month()

@@ -683,3 +683,42 @@ def test_bill_link_before_payment_and_undo_revert(tmp_path: Path, monkeypatch):
     )
     with db_session(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM bill_payment_links").fetchone()[0] == 0
+
+
+def test_health_endpoint(tmp_path: Path, monkeypatch):
+    client, _ = _make_client(tmp_path, monkeypatch)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
+def test_default_month_uses_current_month(tmp_path: Path, monkeypatch):
+    from app.formatting import current_month
+    from app.web import resolve_default_month
+
+    client, db_path = _make_client(tmp_path, monkeypatch)
+    cur = current_month()
+
+    with db_session(db_path) as conn:
+        conn.execute("INSERT INTO banks (name, color) VALUES ('TestBank', '#111111')")
+        bank_id = conn.execute("SELECT id FROM banks WHERE name = 'TestBank'").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO accounts (bank_id, name, account_type) VALUES (?, 'Checking', 'checking')",
+            (bank_id,),
+        )
+        acc_id = conn.execute("SELECT id FROM accounts WHERE name = 'Checking'").fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO transactions (
+                account_id, raw_date, raw_description, raw_amount_cents,
+                dedup_hash, competence_month, display_name, kind
+            ) VALUES (?, '2099-05-10', 'FUTURE TX', -1000, 'h1', '2099-05', 'FUTURE TX', 'expense')
+            """,
+            (acc_id,),
+        )
+        assert resolve_default_month(conn, None) == cur
+        assert resolve_default_month(conn, "2024-01") == "2024-01"
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert f'value="{cur}" selected' in resp.text
